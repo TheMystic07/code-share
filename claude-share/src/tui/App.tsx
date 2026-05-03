@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from "react";
 import { Box, Text, useInput, useApp } from "ink";
-import { Stats } from "./Stats.js";
-import { Sessions } from "./Sessions.js";
+import React, { useState, useEffect } from "react";
+
 import { getSession, revokeConnection, type Connection } from "../session/manager.js";
+import { Sessions } from "./Sessions.js";
+import { Stats } from "./Stats.js";
 
 interface Props {
   publicUrl: string | null;

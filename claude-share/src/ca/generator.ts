@@ -1,5 +1,6 @@
-import * as x509 from "@peculiar/x509";
 import { webcrypto } from "node:crypto";
+
+import * as x509 from "@peculiar/x509";
 const { subtle } = webcrypto;
 
 export interface EphemeralCA {

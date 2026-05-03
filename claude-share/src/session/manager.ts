@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
-import { xchacha20poly1305 } from "@noble/ciphers/chacha.js";
 import { webcrypto } from "node:crypto";
+
+import { xchacha20poly1305 } from "@noble/ciphers/chacha.js";
 function randomBytes(n: number): Uint8Array {
   return webcrypto.getRandomValues(new Uint8Array(n));
 }

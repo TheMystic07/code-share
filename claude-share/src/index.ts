@@ -2,18 +2,19 @@
 import "reflect-metadata";
 import net from "node:net";
 import os from "node:os";
+
 import { serve } from "@hono/node-server";
 import { render } from "ink";
 import React from "react";
 
-import { initToken, stopTokenRefresh } from "./proxy/token.js";
 import { generateEphemeralCA } from "./ca/generator.js";
-import { createSession, destroySession, isSessionExpired } from "./session/manager.js";
-import { createMitmProxy } from "./proxy/mitm.js";
 import { createPortDetector } from "./port/detector.js";
+import { createMitmProxy } from "./proxy/mitm.js";
+import { initToken, stopTokenRefresh } from "./proxy/token.js";
 import { createApiApp } from "./server/index.js";
-import { startTunnel } from "./tunnel/index.js";
+import { createSession, destroySession, isSessionExpired } from "./session/manager.js";
 import { App } from "./tui/App.js";
+import { startTunnel } from "./tunnel/index.js";
 
 function getLanIp(): string | null {
   for (const ifaces of Object.values(os.networkInterfaces())) {

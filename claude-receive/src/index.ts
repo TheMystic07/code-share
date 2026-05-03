@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 import "reflect-metadata";
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawn } from "node:child_process";
+
 import * as p from "@clack/prompts";
 import { xchacha20poly1305 } from "@noble/ciphers/chacha.js";
 

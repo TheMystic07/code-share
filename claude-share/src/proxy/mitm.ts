@@ -1,8 +1,10 @@
 import net from "node:net";
+
 import { Proxy } from "http-mitm-proxy";
+
 import type { EphemeralCA } from "../ca/generator.js";
-import { getAccessToken } from "./token.js";
 import { recordRequest, getSession } from "../session/manager.js";
+import { getAccessToken } from "./token.js";
 
 // Domains the proxy intercepts and forwards to Anthropic with injected token
 const INTERCEPT_DOMAINS = new Set([

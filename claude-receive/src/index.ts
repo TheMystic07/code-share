@@ -256,7 +256,23 @@ async function listFlow() {
 
 // ── Launch claude ─────────────────────────────────────────────────────────────
 
+function ensureOnboarding() {
+  const claudeJsonPath = path.join(os.homedir(), ".claude.json");
+  let config: Record<string, unknown> = {};
+  try {
+    config = JSON.parse(fs.readFileSync(claudeJsonPath, "utf8"));
+  } catch {}
+
+  if (config["hasCompletedOnboarding"] !== true) {
+    p.log.info("Onboarding not completed — marking it done so Claude launches directly.");
+    config["hasCompletedOnboarding"] = true;
+    fs.writeFileSync(claudeJsonPath, JSON.stringify(config, null, 2), { mode: 0o600 });
+  }
+}
+
 function launchClaude(proxyUrl: string, caPem: string, meta: { name: string }) {
+  ensureOnboarding();
+
   // Write CA cert to a temp file
   const tmpCert = path.join(os.tmpdir(), `claude-share-ca-${Date.now()}.pem`);
   fs.writeFileSync(tmpCert, caPem, { mode: 0o600 });

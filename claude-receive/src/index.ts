@@ -44,7 +44,9 @@ function loadConnections(): SavedConnection[] {
     .filter((f) => f.endsWith(".json"))
     .map((f) => {
       try {
-        return JSON.parse(fs.readFileSync(path.join(CONNECTIONS_DIR, f), "utf8")) as SavedConnection;
+        return JSON.parse(
+          fs.readFileSync(path.join(CONNECTIONS_DIR, f), "utf8"),
+        ) as SavedConnection;
       } catch {
         return null;
       }
@@ -54,7 +56,8 @@ function loadConnections(): SavedConnection[] {
 
 // ── Base58 decode ────────────────────────────────────────────────────────────
 
-const BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+const BASE58_ALPHABET =
+  "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
 function fromBase58(str: string): Uint8Array {
   let num = 0n;
@@ -89,8 +92,10 @@ function decryptBlob(blob: string, pairingCode: string): ConnectionFile {
 
 async function checkHealth(serverUrl: string): Promise<boolean> {
   try {
-    const res = await fetch(`${serverUrl}/health`, { signal: AbortSignal.timeout(5000) });
-    const body = await res.json() as { ok: boolean; sessionActive: boolean };
+    const res = await fetch(`${serverUrl}/health`, {
+      signal: AbortSignal.timeout(5000),
+    });
+    const body = (await res.json()) as { ok: boolean; sessionActive: boolean };
     return body.ok && body.sessionActive;
   } catch {
     return false;
@@ -107,19 +112,28 @@ async function pairFlow() {
     placeholder: "https://xxxx.trycloudflare.com",
     validate: (v) => (v?.startsWith("http") ? undefined : "Must be a URL"),
   });
-  if (p.isCancel(serverUrl)) { p.cancel("Cancelled."); process.exit(0); }
+  if (p.isCancel(serverUrl)) {
+    p.cancel("Cancelled.");
+    process.exit(0);
+  }
 
   const pairingCode = await p.text({
     message: "Pairing code (from their terminal):",
     validate: (v) => ((v?.trim().length ?? 0) > 0 ? undefined : "Required"),
   });
-  if (p.isCancel(pairingCode)) { p.cancel("Cancelled."); process.exit(0); }
+  if (p.isCancel(pairingCode)) {
+    p.cancel("Cancelled.");
+    process.exit(0);
+  }
 
   const name = await p.text({
     message: "Your name (shown to sharer):",
     defaultValue: os.userInfo().username,
   });
-  if (p.isCancel(name)) { p.cancel("Cancelled."); process.exit(0); }
+  if (p.isCancel(name)) {
+    p.cancel("Cancelled.");
+    process.exit(0);
+  }
 
   const spin = p.spinner();
   spin.start("Pairing...");
@@ -134,12 +148,12 @@ async function pairFlow() {
       signal: AbortSignal.timeout(10_000),
     });
     if (!res.ok) {
-      const err = await res.json() as { error: string };
+      const err = (await res.json()) as { error: string };
       spin.stop("Failed.");
       p.log.error(err.error ?? "Pairing rejected");
       process.exit(1);
     }
-    const data = await res.json() as { blob: string; connectionId: string };
+    const data = (await res.json()) as { blob: string; connectionId: string };
     blob = data.blob;
     connectionId = data.connectionId;
   } catch (err) {
@@ -169,7 +183,10 @@ async function pairFlow() {
     caPem: file.caPem,
     savedAt: new Date().toISOString(),
   };
-  fs.writeFileSync(connectionPath(connectionId), JSON.stringify(saved, null, 2));
+  fs.writeFileSync(
+    connectionPath(connectionId),
+    JSON.stringify(saved, null, 2),
+  );
 
   launchClaude(file, saved);
 }
@@ -204,7 +221,10 @@ async function reconnectFlow(uuid?: string) {
         hint: `saved ${new Date(c.savedAt).toLocaleDateString()}`,
       })),
     });
-    if (p.isCancel(pick)) { p.cancel("Cancelled."); process.exit(0); }
+    if (p.isCancel(pick)) {
+      p.cancel("Cancelled.");
+      process.exit(0);
+    }
     chosen = connections.find((c) => c.id === pick)!;
   }
 
@@ -232,7 +252,9 @@ async function listFlow() {
   console.log("\nSaved connections:\n");
   for (const c of connections) {
     const alive = await checkHealth(c.serverUrl);
-    const status = alive ? "\x1b[32m● online\x1b[0m" : "\x1b[90m○ offline\x1b[0m";
+    const status = alive
+      ? "\x1b[32m● online\x1b[0m"
+      : "\x1b[90m○ offline\x1b[0m";
     console.log(`  ${status}  ${c.name}  ${c.serverUrl}`);
     console.log(`           id: ${c.id}`);
     console.log(`           saved: ${new Date(c.savedAt).toLocaleString()}\n`);
@@ -241,12 +263,17 @@ async function listFlow() {
 
 // ── Launch claude ─────────────────────────────────────────────────────────────
 
-function launchClaude(file: Pick<ConnectionFile, "serverUrl" | "caPem">, meta: { name: string }) {
+function launchClaude(
+  file: Pick<ConnectionFile, "serverUrl" | "caPem">,
+  meta: { name: string },
+) {
   // Write CA cert to a temp file
   const tmpCert = path.join(os.tmpdir(), `claude-share-ca-${Date.now()}.pem`);
   fs.writeFileSync(tmpCert, file.caPem, { mode: 0o600 });
 
-  p.log.success(`Launching Claude as ${meta.name}. All API calls proxied through sharer.`);
+  p.log.success(
+    `Launching Claude as ${meta.name}. All API calls proxied through sharer.`,
+  );
   p.log.info("Press Ctrl+C to exit and disconnect.");
   p.outro("");
 
@@ -259,13 +286,14 @@ function launchClaude(file: Pick<ConnectionFile, "serverUrl" | "caPem">, meta: {
       HTTPS_PROXY: file.serverUrl,
       HTTP_PROXY: file.serverUrl,
       NODE_EXTRA_CA_CERTS: tmpCert,
-      ANTHROPIC_API_KEY: "claude-share-dummy-key",
     },
   });
 
   function cleanupAndExit(code: number | null) {
     // Remove temp cert
-    try { fs.unlinkSync(tmpCert); } catch {}
+    try {
+      fs.unlinkSync(tmpCert);
+    } catch {}
 
     const duration = Math.floor((Date.now() - startTime) / 1000);
     const mins = Math.floor(duration / 60);
@@ -277,8 +305,12 @@ function launchClaude(file: Pick<ConnectionFile, "serverUrl" | "caPem">, meta: {
   child.on("exit", (code) => cleanupAndExit(code));
   child.on("error", (err) => {
     console.error("\nFailed to launch claude:", err.message);
-    console.error("Is 'claude' installed? Run: npm install -g @anthropic-ai/claude-code");
-    try { fs.unlinkSync(tmpCert); } catch {}
+    console.error(
+      "Is 'claude' installed? Run: npm install -g @anthropic-ai/claude-code",
+    );
+    try {
+      fs.unlinkSync(tmpCert);
+    } catch {}
     process.exit(1);
   });
 

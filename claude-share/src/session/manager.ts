@@ -39,7 +39,6 @@ export interface ConnectionFile {
   serverUrl: string;
   sessionId: string;
   caPem: string;
-  // nonce and ciphertext stored as hex strings in the encrypted file
 }
 
 export interface Session {

@@ -7,7 +7,6 @@ import { serve } from "@hono/node-server";
 import { render } from "ink";
 import React from "react";
 
-import { generateEphemeralCA } from "./ca/generator.js";
 import { createPortDetector } from "./port/detector.js";
 import { createMitmProxy } from "./proxy/mitm.js";
 import { initToken, stopTokenRefresh } from "./proxy/token.js";
@@ -19,7 +18,6 @@ import { startTunnel } from "./tunnel/index.js";
 function getLanIp(): string | null {
   for (const ifaces of Object.values(os.networkInterfaces())) {
     for (const iface of ifaces ?? []) {
-      // Skip loopback and non-IPv4
       if (iface.family === "IPv4" && !iface.internal) {
         return iface.address;
       }
@@ -40,9 +38,6 @@ async function main() {
   await initToken();
   console.log("Token loaded from keychain.");
 
-  const ca = await generateEphemeralCA();
-  console.log("Ephemeral CA generated.");
-
   const durationArg = process.argv[2];
   const duration =
     durationArg === "week"
@@ -57,23 +52,26 @@ async function main() {
   // Internal port for the Hono API server — not exposed externally
   const API_PORT = PORT + 1;
 
-  let loopbackUrl = `http://localhost:${PORT}`;
+  const lanIp = getLanIp();
+  const lanUrl = lanIp ? `http://${lanIp}:${PORT}` : null;
+  const loopbackUrl = `http://localhost:${PORT}`;
 
-  // Start Hono API server on internal port
-  const apiApp = createApiApp(loopbackUrl, ca.certPem);
+  // MITM proxy resolves only after its RSA CA is ready (no race on CONNECT)
+  const mitmProxy = await createMitmProxy();
+  console.log("MITM proxy ready.");
+
+  // Hono API on a localhost-only port; port detector pipes plain HTTP to it
+  const apiApp = createApiApp(lanUrl ?? loopbackUrl, mitmProxy.caCertPem);
   const honoServer = serve({
     fetch: apiApp.fetch,
     port: API_PORT,
     hostname: "127.0.0.1",
   });
 
-  const mitmProxy = createMitmProxy(ca);
-
-  // Single-port detector: CONNECT → MITM proxy, HTTP → Hono API (via internal port pipe)
+  // Single public port: CONNECT → MITM proxy, plain HTTP → Hono API
   const detector = createPortDetector({
     onConnect: (socket) => mitmProxy.handleSocket(socket),
     onHttp: (socket) => {
-      // Pipe non-CONNECT traffic to the internal Hono server
       const upstream = net.connect(API_PORT, "127.0.0.1");
       socket.pipe(upstream);
       upstream.pipe(socket);
@@ -87,8 +85,6 @@ async function main() {
 
   let tunnel: Awaited<ReturnType<typeof startTunnel>>;
   let publicUrl: string | null = null;
-  const lanIp = getLanIp();
-  const lanUrl = lanIp ? `http://${lanIp}:${PORT}` : null;
 
   if (process.env.NODE_ENV !== "development") {
     console.log("Starting Cloudflare tunnel...");

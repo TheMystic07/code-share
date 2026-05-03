@@ -10,7 +10,7 @@ import {
   type ConnectionFile,
 } from "../session/manager.js";
 
-export function createApiApp(publicUrl: string, caPem: string): Hono {
+export function createApiApp(serverUrl: string, caPem: string): Hono {
   const app = new Hono();
 
   app.get("/health", (c) => {
@@ -44,7 +44,7 @@ export function createApiApp(publicUrl: string, caPem: string): Hono {
     const conn = addConnection(session, name);
 
     const file: ConnectionFile = {
-      serverUrl: publicUrl,
+      serverUrl,
       sessionId: session.id,
       caPem,
     };

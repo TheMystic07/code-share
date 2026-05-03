@@ -58,7 +58,7 @@ export function Stats({
           <Text dimColor>{loopbackUrl}</Text>
         </Box>
         <Box gap={1}>
-          <Text dimColor>Local port:</Text>
+          <Text dimColor>Port: </Text>
           <Text>{localPort}</Text>
         </Box>
         <Box gap={1}>

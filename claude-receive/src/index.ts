@@ -108,7 +108,7 @@ async function pairFlow() {
 
   const serverUrl = await p.text({
     message: "Sharer URL (from their terminal):",
-    placeholder: "https://xxxx.trycloudflare.com",
+    placeholder: "http://192.168.x.x:8080",
     validate: (v) => (v?.startsWith("http") ? undefined : "Must be a URL"),
   });
   if (p.isCancel(serverUrl)) {
@@ -177,14 +177,14 @@ async function pairFlow() {
   const saved: SavedConnection = {
     id: connectionId,
     name: name as string,
-    serverUrl: serverUrl as string,
+    serverUrl: file.serverUrl,
     sessionId: file.sessionId,
     caPem: file.caPem,
     savedAt: new Date().toISOString(),
   };
   fs.writeFileSync(connectionPath(connectionId), JSON.stringify(saved, null, 2));
 
-  launchClaude(saved.serverUrl, file.caPem, saved);
+  launchClaude(file.serverUrl, file.caPem, saved);
 }
 
 // ── Reconnect flow ────────────────────────────────────────────────────────────

@@ -1,8 +1,10 @@
+import fs from "node:fs";
 import net from "node:net";
+import os from "node:os";
+import path from "node:path";
 
 import { Proxy } from "http-mitm-proxy";
 
-import type { EphemeralCA } from "../ca/generator.js";
 import { recordRequest, getSession } from "../session/manager.js";
 import { logRequest, setResponseStatus } from "./requestLog.js";
 import { getAccessToken } from "./token.js";
@@ -30,16 +32,16 @@ const ALLOWED_PATHS: Array<{ method: string | null; prefix: string }> = [
 const BLOCKED_PATH_PREFIXES = ["/v1/files", "/v1/fine_tuning", "/v1/assistants"];
 
 // platform.anthropic.com: allow /api/auth/* only
-function isPlatformAllowed(path: string): boolean {
-  return path.startsWith("/api/auth/");
+function isPlatformAllowed(reqPath: string): boolean {
+  return reqPath.startsWith("/api/auth/");
 }
 
-function isApiAllowed(method: string, path: string): boolean {
+function isApiAllowed(method: string, reqPath: string): boolean {
   for (const blocked of BLOCKED_PATH_PREFIXES) {
-    if (path.startsWith(blocked)) return false;
+    if (reqPath.startsWith(blocked)) return false;
   }
   for (const allowed of ALLOWED_PATHS) {
-    if (path.startsWith(allowed.prefix)) {
+    if (reqPath.startsWith(allowed.prefix)) {
       if (allowed.method === null || allowed.method === method.toUpperCase()) return true;
     }
   }
@@ -48,124 +50,128 @@ function isApiAllowed(method: string, path: string): boolean {
 
 export interface MitmProxy {
   /** Feed a socket that has already been identified as a CONNECT request */
-  handleSocket(socket: import("node:net").Socket): void;
+  handleSocket(socket: net.Socket): void;
+  /** PEM of the CA cert that signs intercepted TLS connections */
+  caCertPem: string;
   close(): void;
 }
 
-export function createMitmProxy(ca: EphemeralCA, connectionId?: string): MitmProxy {
-  let proxyPort = 0;
-  let proxyReady = false;
-  const pendingSockets: Array<import("node:net").Socket> = [];
-  const proxy = new Proxy();
+/**
+ * Starts the MITM proxy on a random localhost port.
+ * Resolves only after the RSA CA is ready so CONNECT handling never races.
+ */
+export async function createMitmProxy(connectionId?: string): Promise<MitmProxy> {
+  const sslCaDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "claude-share-mitm-"));
 
-  proxy.use(Proxy.gunzip);
+  return new Promise<MitmProxy>((resolve, reject) => {
+    let proxyPort = 0;
+    let proxyReady = false;
+    const pendingSockets: net.Socket[] = [];
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  proxy.onError((ctx: any, err: any) => {
-    if (err && (err as NodeJS.ErrnoException).code !== "ECONNRESET") {
-      console.error("[mitm] error:", err.message);
-    }
-  });
+    const proxy = new Proxy();
+    proxy.use(Proxy.gunzip);
 
-  proxy.onRequest((ctx: any, callback: () => void) => {
-    const host = ctx.clientToProxyRequest.headers.host ?? "";
-    const hostname = host.split(":")[0];
-    const method = ctx.clientToProxyRequest.method ?? "GET";
-    const path = ctx.clientToProxyRequest.url ?? "/";
-
-    // Block entirely
-    if (BLOCKED_DOMAINS.has(hostname)) {
-      logRequest(method, hostname, path, "blocked");
-      ctx.proxyToClientResponse.writeHead(403, { "Content-Type": "text/plain" });
-      ctx.proxyToClientResponse.end("Blocked by claude-share");
-      return;
-    }
-
-    if (!INTERCEPT_DOMAINS.has(hostname)) {
-      logRequest(method, hostname, path, "passthrough");
-      return callback();
-    }
-
-    // Enforce allowlist per domain
-    if (hostname === "api.anthropic.com" && !isApiAllowed(method, path)) {
-      logRequest(method, hostname, path, "blocked");
-      ctx.proxyToClientResponse.writeHead(403, { "Content-Type": "text/plain" });
-      ctx.proxyToClientResponse.end("Not allowed by claude-share policy");
-      return;
-    }
-    if (hostname === "platform.anthropic.com" && !isPlatformAllowed(path)) {
-      logRequest(method, hostname, path, "blocked");
-      ctx.proxyToClientResponse.writeHead(403, { "Content-Type": "text/plain" });
-      ctx.proxyToClientResponse.end("Not allowed by claude-share policy");
-      return;
-    }
-
-    ctx[CTX_LOG_ID] = logRequest(method, hostname, path, "allowed");
-
-    // Inject real Bearer token; strip any dummy token the receiver sent
-    ctx.proxyToServerRequestOptions.headers = ctx.proxyToServerRequestOptions.headers ?? {};
-    ctx.proxyToServerRequestOptions.headers["authorization"] = `Bearer ${getAccessToken()}`;
-
-    // Strip headers that could leak receiver identity
-    delete ctx.proxyToServerRequestOptions.headers["x-forwarded-for"];
-    delete ctx.proxyToServerRequestOptions.headers["x-real-ip"];
-
-    // Record usage
-    if (connectionId) {
-      const session = getSession();
-      if (session) recordRequest(session, connectionId);
-    }
-
-    callback();
-  });
-
-  // Capture response status for the request log
-  proxy.onResponse((ctx: any, callback: () => void) => {
-    const logId = ctx[CTX_LOG_ID];
-    if (logId !== undefined) {
-      setResponseStatus(logId, ctx.serverToProxyResponse.statusCode ?? 0);
-    }
-    callback();
-  });
-
-  // Configure proxy to use our ephemeral CA for TLS interception
-  proxy.onConnect((_req: any, _socket: any, _head: any, callback: () => void) => {
-    callback();
-  });
-
-  proxy.listen({ port: 0, sslCaDir: undefined }, () => {
-    proxyPort = (proxy as any).httpServer.address().port;
-    proxyReady = true;
-    // Drain any sockets that arrived before listen completed
-    for (const s of pendingSockets) pipeSocket(s);
-    pendingSockets.length = 0;
-  });
-
-  // Override SSL options to use our ephemeral CA
-  (proxy as any).sslCertCache = {};
-  (proxy as any).sslOptions = {
-    key: ca.keyPem,
-    cert: ca.certPem,
-  };
-
-  function pipeSocket(socket: import("node:net").Socket) {
-    const upstream = net.connect(proxyPort, "127.0.0.1");
-    socket.pipe(upstream);
-    upstream.pipe(socket);
-    socket.on("error", () => upstream.destroy());
-    upstream.on("error", () => socket.destroy());
-  }
-
-  return {
-    handleSocket(socket) {
-      if (proxyReady) {
-        pipeSocket(socket);
-      } else {
-        pendingSockets.push(socket);
+    proxy.onError((ctx: any, err: any) => {
+      if (err && (err as NodeJS.ErrnoException).code !== "ECONNRESET") {
+        console.error("[mitm] error:", err.message);
       }
-    },
-    close() {
-      proxy.close();
-    },
-  };
+    });
+
+    proxy.onRequest((ctx: any, callback: () => void) => {
+      const host = ctx.clientToProxyRequest.headers.host ?? "";
+      const hostname = host.split(":")[0];
+      const method = ctx.clientToProxyRequest.method ?? "GET";
+      const reqPath = ctx.clientToProxyRequest.url ?? "/";
+
+      if (BLOCKED_DOMAINS.has(hostname)) {
+        logRequest(method, hostname, reqPath, "blocked");
+        ctx.proxyToClientResponse.writeHead(403, { "Content-Type": "text/plain" });
+        ctx.proxyToClientResponse.end("Blocked by claude-share");
+        return;
+      }
+
+      if (!INTERCEPT_DOMAINS.has(hostname)) {
+        logRequest(method, hostname, reqPath, "passthrough");
+        return callback();
+      }
+
+      if (hostname === "api.anthropic.com" && !isApiAllowed(method, reqPath)) {
+        logRequest(method, hostname, reqPath, "blocked");
+        ctx.proxyToClientResponse.writeHead(403, { "Content-Type": "text/plain" });
+        ctx.proxyToClientResponse.end("Not allowed by claude-share policy");
+        return;
+      }
+      if (hostname === "platform.anthropic.com" && !isPlatformAllowed(reqPath)) {
+        logRequest(method, hostname, reqPath, "blocked");
+        ctx.proxyToClientResponse.writeHead(403, { "Content-Type": "text/plain" });
+        ctx.proxyToClientResponse.end("Not allowed by claude-share policy");
+        return;
+      }
+
+      ctx[CTX_LOG_ID] = logRequest(method, hostname, reqPath, "allowed");
+
+      ctx.proxyToServerRequestOptions.headers = ctx.proxyToServerRequestOptions.headers ?? {};
+      ctx.proxyToServerRequestOptions.headers["authorization"] = `Bearer ${getAccessToken()}`;
+
+      delete ctx.proxyToServerRequestOptions.headers["x-forwarded-for"];
+      delete ctx.proxyToServerRequestOptions.headers["x-real-ip"];
+
+      if (connectionId) {
+        const session = getSession();
+        if (session) recordRequest(session, connectionId);
+      }
+
+      callback();
+    });
+
+    proxy.onResponse((ctx: any, callback: () => void) => {
+      const logId = ctx[CTX_LOG_ID];
+      if (logId !== undefined) {
+        setResponseStatus(logId, ctx.serverToProxyResponse.statusCode ?? 0);
+      }
+      callback();
+    });
+
+    proxy.onConnect((_req: any, _socket: any, _head: any, callback: () => void) => {
+      callback();
+    });
+
+    // Listen on a random localhost port — CA generation completes before callback fires
+    proxy.listen({ port: 0, host: "127.0.0.1", sslCaDir }, (err?: Error | null) => {
+      if (err) return reject(err);
+      try {
+        proxyPort = (proxy as any).httpServer.address().port;
+        proxyReady = true;
+        const caCertPem = fs.readFileSync(path.join(sslCaDir, "certs", "ca.pem"), "utf8");
+
+        for (const s of pendingSockets) pipeToProxy(s);
+        pendingSockets.length = 0;
+
+        resolve({
+          caCertPem,
+          handleSocket(socket) {
+            if (proxyReady) {
+              pipeToProxy(socket);
+            } else {
+              pendingSockets.push(socket);
+            }
+          },
+          close() {
+            proxy.close();
+            fs.rm(sslCaDir, { recursive: true, force: true }, () => {});
+          },
+        });
+      } catch (readErr) {
+        reject(readErr);
+      }
+    });
+
+    function pipeToProxy(socket: net.Socket) {
+      const upstream = net.connect(proxyPort, "127.0.0.1");
+      socket.pipe(upstream);
+      upstream.pipe(socket);
+      socket.on("error", () => upstream.destroy());
+      upstream.on("error", () => socket.destroy());
+    }
+  });
 }

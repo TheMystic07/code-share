@@ -88,19 +88,24 @@ async function main() {
   await new Promise<void>((resolve) => detector.listen(PORT, resolve));
   console.log(`Listening on port ${PORT}`);
 
-  console.log("Starting Cloudflare tunnel...");
   let tunnel: Awaited<ReturnType<typeof startTunnel>>;
   let publicUrl: string | null = null;
   const lanIp = getLanIp();
   const lanUrl = lanIp ? `http://${lanIp}:${PORT}` : null;
 
-  try {
-    tunnel = await startTunnel(PORT);
-    publicUrl = tunnel.publicUrl;
-    console.log(`Tunnel active: ${publicUrl}`);
-  } catch (err) {
-    console.warn("Could not start tunnel", (err as Error).message);
-    tunnel = { publicUrl, close: () => {} };
+  if (process.env.NODE_ENV !== "development") {
+    console.log("Starting Cloudflare tunnel...");
+    try {
+      tunnel = await startTunnel(PORT);
+      publicUrl = tunnel.publicUrl;
+      console.log(`Tunnel active: ${publicUrl}`);
+    } catch (err) {
+      console.warn("Could not start tunnel", (err as Error).message);
+      tunnel = { publicUrl: null, close: () => {} };
+    }
+  } else {
+    console.log("Development mode — skipping tunnel.");
+    tunnel = { publicUrl: null, close: () => {} };
   }
 
   function cleanup() {

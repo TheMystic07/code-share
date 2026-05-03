@@ -20,6 +20,9 @@ const INTERCEPT_DOMAINS = new Set([
   "mcp-proxy.anthropic.com",
 ]);
 
+// Domains allowed to pass through without interception or token injection
+const PASSTHROUGH_DOMAINS = new Set(["raw.githubusercontent.com"]);
+
 // api.anthropic.com allowed paths
 const API_ALLOWED_PATHS: Array<{ method: string | null; prefix: string }> = [
   { method: null, prefix: "/api/hello" },
@@ -86,6 +89,10 @@ export async function createMitmProxy(connectionId?: string): Promise<MitmProxy>
       const hostname = host.split(":")[0];
       const method = ctx.clientToProxyRequest.method ?? "GET";
       const reqPath = ctx.clientToProxyRequest.url ?? "/";
+
+      if (PASSTHROUGH_DOMAINS.has(hostname)) {
+        return callback();
+      }
 
       if (!INTERCEPT_DOMAINS.has(hostname)) {
         logRequest(method, hostname, reqPath, "blocked");

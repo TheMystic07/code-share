@@ -58,7 +58,8 @@ let currentSession: Session | null = null;
 
 export function createSession(durationMs: number): Session {
   const key = randomBytes(32);
-  const pairingCode = toBase58(key.slice(0, 10));
+  // Full key encoded as base58 — receiver uses this to decrypt the connection file
+  const pairingCode = toBase58(key);
 
   currentSession = {
     id: crypto.randomUUID(),

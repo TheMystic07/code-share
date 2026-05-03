@@ -70,10 +70,10 @@ function fromBase58(str: string): Uint8Array {
 // ── Decryption (mirrors session/manager.ts in claude-share) ─────────────────
 
 function decryptBlob(blob: string, pairingCode: string): ConnectionFile {
-  // Derive 32-byte key: pad/truncate base58-decoded pairing code to 32 bytes
+  // Pairing code is the full 32-byte session key encoded in base58
   const codeBytes = fromBase58(pairingCode);
-  const key = new Uint8Array(32);
-  key.set(codeBytes.slice(0, 32));
+  if (codeBytes.length < 32) throw new Error("Pairing code too short");
+  const key = codeBytes.slice(0, 32);
 
   const nonceHex = blob.slice(0, 48);
   const ctHex = blob.slice(48);

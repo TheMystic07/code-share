@@ -1,6 +1,7 @@
 import { Box, Text, useInput, useApp } from "ink";
 import React, { useState, useEffect } from "react";
 
+import { getEntries, subscribe } from "../proxy/requestLog.js";
 import { getSession, revokeConnection, type Connection } from "../session/manager.js";
 import { RequestLog } from "./RequestLog.js";
 import { Sessions } from "./Sessions.js";
@@ -33,16 +34,22 @@ export function App({
   const [connections, setConnections] = useState<Connection[]>([]);
   const [totalRequests, setTotalRequests] = useState(0);
 
-  // Poll session state every second
+  // Poll session connections every second
   useEffect(() => {
     const interval = setInterval(() => {
       const session = getSession();
       if (!session) return;
-      const conns = Array.from(session.connections.values());
-      setConnections([...conns]);
-      setTotalRequests(conns.reduce((sum, c) => sum + c.requestCount, 0));
+      setConnections(Array.from(session.connections.values()));
     }, 1000);
     return () => clearInterval(interval);
+  }, []);
+
+  // Count allowed requests reactively from the request log
+  useEffect(() => {
+    const count = () =>
+      setTotalRequests(getEntries().filter((e) => e.outcome === "allowed").length);
+    count();
+    return subscribe(count);
   }, []);
 
   useInput((input, key) => {

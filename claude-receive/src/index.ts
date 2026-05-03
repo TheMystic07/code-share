@@ -136,12 +136,12 @@ async function pairFlow(
       process.exit(0);
     }
 
-    const parsed = parseConnectUrl(input as string);
+    const parsed = parseConnectUrl((input as string).trim());
     if (parsed) {
       serverUrl = parsed.serverUrl;
       pairingCode = parsed.pairingCode;
     } else {
-      serverUrl = input as string;
+      serverUrl = (input as string).trim();
       const codeInput = await p.text({
         message: "Pairing code (from their terminal):",
         validate: (v) => ((v?.trim().length ?? 0) > 0 ? undefined : "Required"),
@@ -378,7 +378,7 @@ if (args[0] === "--list" || args[0] === "-l") {
 } else if (args[0] === "--reconnect" || args[0] === "-r") {
   await reconnectFlow(args[1], claudeArgs);
 } else if (shareArg) {
-  const connectUrl = shareArg.slice("--share=".length);
+  const connectUrl = shareArg.slice("--share=".length).trim();
   const parsed = parseConnectUrl(connectUrl);
   if (!parsed) {
     console.error("Invalid --share URL. Expected: http://host:port/connect/PAIRINGCODE");

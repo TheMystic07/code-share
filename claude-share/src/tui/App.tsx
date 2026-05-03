@@ -1,5 +1,7 @@
+import { execSync } from "node:child_process";
+
 import { Box, Text, useInput, useApp } from "ink";
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 
 import { getEntries, subscribe } from "../proxy/requestLog.js";
 import { getSession, revokeConnection, type Connection } from "../session/manager.js";
@@ -8,6 +10,21 @@ import { Sessions } from "./Sessions.js";
 import { Stats } from "./Stats.js";
 
 const IS_DEV = process.env.NODE_ENV === "development";
+
+function copyToClipboard(text: string): boolean {
+  try {
+    if (process.platform === "darwin") {
+      execSync("pbcopy", { input: text });
+    } else if (process.platform === "win32") {
+      execSync("clip", { input: text });
+    } else {
+      execSync("xclip -selection clipboard", { input: text });
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 interface Props {
   publicUrl: string | null;
@@ -33,6 +50,8 @@ export function App({
   const { exit } = useApp();
   const [connections, setConnections] = useState<Connection[]>([]);
   const [totalRequests, setTotalRequests] = useState(0);
+  const [copied, setCopied] = useState(false);
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Poll session connections every second
   useEffect(() => {
@@ -57,6 +76,18 @@ export function App({
       onExit();
       exit();
     }
+    if (input === "c" && !key.ctrl) {
+      const connectUrl =
+        (publicUrl ? `${publicUrl}/connect/${pairingCode}` : null) ??
+        (lanUrl ? `${lanUrl}/connect/${pairingCode}` : null) ??
+        `${loopbackUrl}/connect/${pairingCode}`;
+      const ok = copyToClipboard(connectUrl);
+      if (ok) {
+        setCopied(true);
+        if (copyTimer.current) clearTimeout(copyTimer.current);
+        copyTimer.current = setTimeout(() => setCopied(false), 2000);
+      }
+    }
   });
 
   function handleRevoke(id: string) {
@@ -78,8 +109,13 @@ export function App({
       />
       <Sessions connections={connections} onRevoke={handleRevoke} />
       {IS_DEV && <RequestLog />}
-      <Box marginTop={1}>
-        <Text dimColor>Press q to stop sharing and disconnect all receivers</Text>
+      <Box marginTop={1} gap={2}>
+        <Text dimColor>Press q to quit</Text>
+        {copied ? (
+          <Text color="green">✓ Copied!</Text>
+        ) : (
+          <Text dimColor>Press c to copy connect link</Text>
+        )}
       </Box>
     </Box>
   );

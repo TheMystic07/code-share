@@ -6,11 +6,18 @@ import path from "node:path";
 import { Proxy } from "http-mitm-proxy";
 
 import { recordRequest, getSession } from "../session/manager.js";
+import { writeDevLog, truncate, LOG_FILE, type DevLogEntry } from "./devLogger.js";
 import { logRequest, setResponseStatus } from "./requestLog.js";
 import { getAccessToken } from "./token.js";
 
+const IS_DEV = process.env.NODE_ENV === "development";
+
 // Per-request log id stored on ctx so onResponse can update it
 const CTX_LOG_ID = Symbol("logId");
+
+// Dev-mode: full request/response entry and raw body chunks
+const DEV_ENTRY = Symbol("devEntry");
+const DEV_CHUNKS = Symbol("devChunks");
 
 // Domains the proxy intercepts and forwards to Anthropic with injected token
 const INTERCEPT_DOMAINS = new Set([
@@ -133,6 +140,20 @@ export async function createMitmProxy(connectionId?: string): Promise<MitmProxy>
         if (session) recordRequest(session, connectionId);
       }
 
+      if (IS_DEV) {
+        ctx[DEV_ENTRY] = {
+          ts: new Date().toISOString(),
+          method,
+          host: hostname,
+          path: reqPath,
+          requestHeaders: ctx.clientToProxyRequest.headers,
+          requestBody: "",
+          status: null,
+          responseHeaders: null,
+        } satisfies DevLogEntry;
+        ctx[DEV_CHUNKS] = [] as Buffer[];
+      }
+
       callback();
     });
 
@@ -141,8 +162,33 @@ export async function createMitmProxy(connectionId?: string): Promise<MitmProxy>
       if (logId !== undefined) {
         setResponseStatus(logId, ctx.serverToProxyResponse.statusCode ?? 0);
       }
+      if (IS_DEV && ctx[DEV_ENTRY]) {
+        ctx[DEV_ENTRY].status = ctx.serverToProxyResponse.statusCode ?? null;
+        ctx[DEV_ENTRY].responseHeaders = ctx.serverToProxyResponse.headers ?? null;
+      }
       callback();
     });
+
+    if (IS_DEV) {
+      console.log(`[dev] logging requests to ${LOG_FILE}`);
+
+      proxy.onRequestData(
+        (ctx: any, chunk: Buffer, callback: (err: null, chunk: Buffer) => void) => {
+          if (ctx[DEV_CHUNKS]) ctx[DEV_CHUNKS].push(chunk);
+          callback(null, chunk);
+        },
+      );
+
+      proxy.onRequestEnd((ctx: any, callback: () => void) => {
+        const entry: DevLogEntry | undefined = ctx[DEV_ENTRY];
+        if (entry) {
+          const chunks: Buffer[] = ctx[DEV_CHUNKS] ?? [];
+          entry.requestBody = truncate(Buffer.concat(chunks));
+          writeDevLog(entry);
+        }
+        callback();
+      });
+    }
 
     proxy.onConnect((_req: any, _socket: any, _head: any, callback: () => void) => {
       callback();

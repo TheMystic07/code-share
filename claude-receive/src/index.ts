@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import "reflect-metadata";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";

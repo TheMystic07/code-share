@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import "reflect-metadata";
 import net from "node:net";
 import os from "node:os";
 

@@ -184,7 +184,7 @@ async function pairFlow() {
   };
   fs.writeFileSync(connectionPath(connectionId), JSON.stringify(saved, null, 2));
 
-  launchClaude(file, saved);
+  launchClaude(saved.serverUrl, file.caPem, saved);
 }
 
 // ── Reconnect flow ────────────────────────────────────────────────────────────
@@ -233,7 +233,7 @@ async function reconnectFlow(uuid?: string) {
   }
   spin.stop("Server is alive.");
 
-  launchClaude(chosen, chosen);
+  launchClaude(chosen.serverUrl, chosen.caPem, chosen);
 }
 
 // ── List flow ────────────────────────────────────────────────────────────────
@@ -257,12 +257,13 @@ async function listFlow() {
 
 // ── Launch claude ─────────────────────────────────────────────────────────────
 
-function launchClaude(file: Pick<ConnectionFile, "serverUrl" | "caPem">, meta: { name: string }) {
+function launchClaude(proxyUrl: string, caPem: string, meta: { name: string }) {
   // Write CA cert to a temp file
   const tmpCert = path.join(os.tmpdir(), `claude-share-ca-${Date.now()}.pem`);
-  fs.writeFileSync(tmpCert, file.caPem, { mode: 0o600 });
+  fs.writeFileSync(tmpCert, caPem, { mode: 0o600 });
 
   p.log.success(`Launching Claude as ${meta.name}. All API calls proxied through sharer.`);
+  p.log.info(`Proxy: ${proxyUrl}`);
   p.log.info("Press Ctrl+C to exit and disconnect.");
   p.outro("");
 
@@ -272,8 +273,8 @@ function launchClaude(file: Pick<ConnectionFile, "serverUrl" | "caPem">, meta: {
     stdio: "inherit",
     env: {
       ...process.env,
-      HTTPS_PROXY: file.serverUrl,
-      HTTP_PROXY: file.serverUrl,
+      HTTPS_PROXY: proxyUrl,
+      HTTP_PROXY: proxyUrl,
       NODE_EXTRA_CA_CERTS: tmpCert,
     },
   });

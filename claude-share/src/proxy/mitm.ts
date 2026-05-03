@@ -7,6 +7,9 @@ import { recordRequest, getSession } from "../session/manager.js";
 import { logRequest, setResponseStatus } from "./requestLog.js";
 import { getAccessToken } from "./token.js";
 
+// Per-request log id stored on ctx so onResponse can update it
+const CTX_LOG_ID = Symbol("logId");
+
 // Domains the proxy intercepts and forwards to Anthropic with injected token
 const INTERCEPT_DOMAINS = new Set([
   "api.anthropic.com",
@@ -51,6 +54,8 @@ export interface MitmProxy {
 
 export function createMitmProxy(ca: EphemeralCA, connectionId?: string): MitmProxy {
   let proxyPort = 0;
+  let proxyReady = false;
+  const pendingSockets: Array<import("node:net").Socket> = [];
   const proxy = new Proxy();
 
   proxy.use(Proxy.gunzip);
@@ -95,7 +100,7 @@ export function createMitmProxy(ca: EphemeralCA, connectionId?: string): MitmPro
       return;
     }
 
-    const logId = logRequest(method, hostname, path, "allowed");
+    ctx[CTX_LOG_ID] = logRequest(method, hostname, path, "allowed");
 
     // Inject real Bearer token; strip any dummy token the receiver sent
     ctx.proxyToServerRequestOptions.headers = ctx.proxyToServerRequestOptions.headers ?? {};
@@ -111,12 +116,15 @@ export function createMitmProxy(ca: EphemeralCA, connectionId?: string): MitmPro
       if (session) recordRequest(session, connectionId);
     }
 
-    // Capture response status
-    ctx.onResponse((rCtx: any, next: () => void) => {
-      setResponseStatus(logId, rCtx.serverToProxyResponse.statusCode ?? 0);
-      next();
-    });
+    callback();
+  });
 
+  // Capture response status for the request log
+  proxy.onResponse((ctx: any, callback: () => void) => {
+    const logId = ctx[CTX_LOG_ID];
+    if (logId !== undefined) {
+      setResponseStatus(logId, ctx.serverToProxyResponse.statusCode ?? 0);
+    }
     callback();
   });
 
@@ -127,6 +135,10 @@ export function createMitmProxy(ca: EphemeralCA, connectionId?: string): MitmPro
 
   proxy.listen({ port: 0, sslCaDir: undefined }, () => {
     proxyPort = (proxy as any).httpServer.address().port;
+    proxyReady = true;
+    // Drain any sockets that arrived before listen completed
+    for (const s of pendingSockets) pipeSocket(s);
+    pendingSockets.length = 0;
   });
 
   // Override SSL options to use our ephemeral CA
@@ -136,14 +148,21 @@ export function createMitmProxy(ca: EphemeralCA, connectionId?: string): MitmPro
     cert: ca.certPem,
   };
 
+  function pipeSocket(socket: import("node:net").Socket) {
+    const upstream = net.connect(proxyPort, "127.0.0.1");
+    socket.pipe(upstream);
+    upstream.pipe(socket);
+    socket.on("error", () => upstream.destroy());
+    upstream.on("error", () => socket.destroy());
+  }
+
   return {
-    // Pipe the raw socket into the proxy's own TCP server
     handleSocket(socket) {
-      const upstream = net.connect(proxyPort, "127.0.0.1");
-      socket.pipe(upstream);
-      upstream.pipe(socket);
-      socket.on("error", () => upstream.destroy());
-      upstream.on("error", () => socket.destroy());
+      if (proxyReady) {
+        pipeSocket(socket);
+      } else {
+        pendingSockets.push(socket);
+      }
     },
     close() {
       proxy.close();

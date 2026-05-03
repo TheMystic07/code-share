@@ -1,3 +1,4 @@
+import net from "node:net";
 import { Proxy } from "http-mitm-proxy";
 import type { EphemeralCA } from "../ca/generator.js";
 import { getAccessToken } from "./token.js";
@@ -52,6 +53,7 @@ export interface MitmProxy {
 }
 
 export function createMitmProxy(ca: EphemeralCA, connectionId?: string): MitmProxy {
+  let proxyPort = 0;
   const proxy = new Proxy();
 
   proxy.use(Proxy.gunzip);
@@ -115,9 +117,11 @@ export function createMitmProxy(ca: EphemeralCA, connectionId?: string): MitmPro
     callback();
   });
 
-  proxy.listen({ port: 0, sslCaDir: undefined }, () => {});
+  proxy.listen({ port: 0, sslCaDir: undefined }, () => {
+    proxyPort = (proxy as any).httpServer.address().port;
+  });
 
-  // Override SSL options to use our CA
+  // Override SSL options to use our ephemeral CA
   (proxy as any).sslCertCache = {};
   (proxy as any).sslOptions = {
     key: ca.keyPem,
@@ -125,8 +129,13 @@ export function createMitmProxy(ca: EphemeralCA, connectionId?: string): MitmPro
   };
 
   return {
+    // Pipe the raw socket into the proxy's own TCP server
     handleSocket(socket) {
-      (proxy as any).onConnection(socket);
+      const upstream = net.connect(proxyPort, "127.0.0.1");
+      socket.pipe(upstream);
+      upstream.pipe(socket);
+      socket.on("error", () => upstream.destroy());
+      upstream.on("error", () => socket.destroy());
     },
     close() {
       proxy.close();

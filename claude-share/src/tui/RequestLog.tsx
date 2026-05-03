@@ -6,13 +6,11 @@ import { getEntries, subscribe, type RequestEntry } from "../proxy/requestLog.js
 const OUTCOME_COLOR: Record<string, string> = {
   allowed: "green",
   blocked: "red",
-  passthrough: "yellow",
 };
 
 const OUTCOME_ICON: Record<string, string> = {
   allowed: "✓",
   blocked: "✕",
-  passthrough: "→",
 };
 
 function formatTime(d: Date): string {

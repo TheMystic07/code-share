@@ -1,4 +1,4 @@
-export type RequestOutcome = "allowed" | "blocked" | "passthrough";
+export type RequestOutcome = "allowed" | "blocked";
 
 export interface RequestEntry {
   id: number;

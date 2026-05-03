@@ -19,9 +19,6 @@ const INTERCEPT_DOMAINS = new Set([
   "mcp-proxy.anthropic.com",
 ]);
 
-// Domains blocked entirely
-const BLOCKED_DOMAINS = new Set(["downloads.claude.ai"]);
-
 // API paths allowed on api.anthropic.com
 const ALLOWED_PATHS: Array<{ method: string | null; prefix: string }> = [
   { method: "POST", prefix: "/v1/messages" },
@@ -83,16 +80,11 @@ export async function createMitmProxy(connectionId?: string): Promise<MitmProxy>
       const method = ctx.clientToProxyRequest.method ?? "GET";
       const reqPath = ctx.clientToProxyRequest.url ?? "/";
 
-      if (BLOCKED_DOMAINS.has(hostname)) {
+      if (!INTERCEPT_DOMAINS.has(hostname)) {
         logRequest(method, hostname, reqPath, "blocked");
         ctx.proxyToClientResponse.writeHead(403, { "Content-Type": "text/plain" });
-        ctx.proxyToClientResponse.end("Blocked by claude-share");
+        ctx.proxyToClientResponse.end("Not allowed by claude-share policy");
         return;
-      }
-
-      if (!INTERCEPT_DOMAINS.has(hostname)) {
-        logRequest(method, hostname, reqPath, "passthrough");
-        return callback();
       }
 
       if (hostname === "api.anthropic.com" && !isApiAllowed(method, reqPath)) {

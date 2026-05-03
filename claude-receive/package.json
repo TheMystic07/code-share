@@ -7,7 +7,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "dev": "tsx src/index.ts",
+    "dev": "bun src/index.ts",
     "start": "node dist/index.js",
     "lint": "oxlint src",
     "fmt": "oxfmt --config ../.oxfmtrc.json src"
@@ -21,7 +21,6 @@
     "@types/node": "latest",
     "oxfmt": "0.47.0",
     "oxlint": "1.62.0",
-    "tsx": "latest",
     "typescript": "latest"
   }
 }

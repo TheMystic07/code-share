@@ -2,7 +2,9 @@ import React from "react";
 import { Box, Text } from "ink";
 
 interface Props {
-  publicUrl: string;
+  publicUrl: string | null;
+  lanUrl: string | null;
+  loopbackUrl: string;
   pairingCode: string;
   localPort: number;
   sharedUntil: Date;
@@ -18,15 +20,32 @@ function formatExpiry(date: Date): string {
   return `${m}m remaining`;
 }
 
-export function Stats({ publicUrl, pairingCode, localPort, sharedUntil, totalRequests }: Props) {
+export function Stats({ publicUrl, lanUrl, loopbackUrl, pairingCode, localPort, sharedUntil, totalRequests }: Props) {
   return (
     <Box flexDirection="column" borderStyle="round" borderColor="cyan" paddingX={2} paddingY={1}>
       <Text bold color="cyan">claude-share</Text>
 
       <Box flexDirection="column" marginTop={1} gap={0}>
+        {publicUrl ? (
+          <Box gap={1}>
+            <Text dimColor>Public (tunnel):</Text>
+            <Text color="green">{publicUrl}</Text>
+          </Box>
+        ) : (
+          <Box gap={1}>
+            <Text dimColor>Public (tunnel):</Text>
+            <Text color="yellow">starting…</Text>
+          </Box>
+        )}
+        {lanUrl && (
+          <Box gap={1}>
+            <Text dimColor>LAN:           </Text>
+            <Text color="white">{lanUrl}</Text>
+          </Box>
+        )}
         <Box gap={1}>
-          <Text dimColor>Public URL:</Text>
-          <Text color="white">{publicUrl}</Text>
+          <Text dimColor>Loopback:      </Text>
+          <Text dimColor>{loopbackUrl}</Text>
         </Box>
         <Box gap={1}>
           <Text dimColor>Local port:</Text>

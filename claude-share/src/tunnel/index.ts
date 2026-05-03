@@ -11,7 +11,7 @@ try {
 }
 
 export interface Tunnel {
-  publicUrl: string;
+  publicUrl: string | null;
   close(): void;
 }
 

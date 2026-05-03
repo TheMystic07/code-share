@@ -2,10 +2,16 @@ import React, { useState, useEffect } from "react";
 import { Box, Text, useInput, useApp } from "ink";
 import { Stats } from "./Stats.js";
 import { Sessions } from "./Sessions.js";
-import { getSession, revokeConnection, type Connection } from "../session/manager.js";
+import {
+  getSession,
+  revokeConnection,
+  type Connection,
+} from "../session/manager.js";
 
 interface Props {
-  publicUrl: string;
+  publicUrl: string | null;
+  lanUrl: string | null;
+  loopbackUrl: string;
   pairingCode: string;
   localPort: number;
   sharedUntil: Date;
@@ -13,7 +19,16 @@ interface Props {
   onExit: () => void;
 }
 
-export function App({ publicUrl, pairingCode, localPort, sharedUntil, onRevoke, onExit }: Props) {
+export function App({
+  publicUrl,
+  lanUrl,
+  loopbackUrl,
+  pairingCode,
+  localPort,
+  sharedUntil,
+  onRevoke,
+  onExit,
+}: Props) {
   const { exit } = useApp();
   const [connections, setConnections] = useState<Connection[]>([]);
   const [totalRequests, setTotalRequests] = useState(0);
@@ -47,6 +62,8 @@ export function App({ publicUrl, pairingCode, localPort, sharedUntil, onRevoke, 
     <Box flexDirection="column" padding={1}>
       <Stats
         publicUrl={publicUrl}
+        lanUrl={lanUrl}
+        loopbackUrl={loopbackUrl}
         pairingCode={pairingCode}
         localPort={localPort}
         sharedUntil={sharedUntil}
@@ -54,7 +71,9 @@ export function App({ publicUrl, pairingCode, localPort, sharedUntil, onRevoke, 
       />
       <Sessions connections={connections} onRevoke={handleRevoke} />
       <Box marginTop={1}>
-        <Text dimColor>Press q to stop sharing and disconnect all receivers</Text>
+        <Text dimColor>
+          Press q to stop sharing and disconnect all receivers
+        </Text>
       </Box>
     </Box>
   );

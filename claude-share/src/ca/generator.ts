@@ -12,7 +12,10 @@ export interface EphemeralCA {
 export async function generateEphemeralCA(): Promise<EphemeralCA> {
   // Generate an EC key pair for the CA
   const alg: EcKeyGenParams = { name: "ECDSA", namedCurve: "P-256" };
-  const keyPair = await subtle.generateKey(alg, true, ["sign", "verify"]) as unknown as CryptoKeyPair;
+  const keyPair = (await subtle.generateKey(alg, true, [
+    "sign",
+    "verify",
+  ])) as unknown as CryptoKeyPair;
 
   const notBefore = new Date();
   const notAfter = new Date(notBefore.getTime() + 24 * 60 * 60 * 1000); // 24h validity
@@ -40,7 +43,10 @@ export async function generateEphemeralCA(): Promise<EphemeralCA> {
   const pkcs8 = await subtle.exportKey("pkcs8", keyPair.privateKey);
   const keyPem = [
     "-----BEGIN PRIVATE KEY-----",
-    Buffer.from(pkcs8).toString("base64").match(/.{1,64}/g)!.join("\n"),
+    Buffer.from(pkcs8)
+      .toString("base64")
+      .match(/.{1,64}/g)!
+      .join("\n"),
     "-----END PRIVATE KEY-----",
   ].join("\n");
 

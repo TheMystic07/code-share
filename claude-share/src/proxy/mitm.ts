@@ -12,9 +12,7 @@ const INTERCEPT_DOMAINS = new Set([
 ]);
 
 // Domains blocked entirely
-const BLOCKED_DOMAINS = new Set([
-  "downloads.claude.ai",
-]);
+const BLOCKED_DOMAINS = new Set(["downloads.claude.ai"]);
 
 // API paths allowed on api.anthropic.com
 const ALLOWED_PATHS: Array<{ method: string | null; prefix: string }> = [
@@ -23,11 +21,7 @@ const ALLOWED_PATHS: Array<{ method: string | null; prefix: string }> = [
 ];
 
 // api.anthropic.com paths that are always blocked regardless of method
-const BLOCKED_PATH_PREFIXES = [
-  "/v1/files",
-  "/v1/fine_tuning",
-  "/v1/assistants",
-];
+const BLOCKED_PATH_PREFIXES = ["/v1/files", "/v1/fine_tuning", "/v1/assistants"];
 
 // platform.anthropic.com: allow /api/auth/* only
 function isPlatformAllowed(path: string): boolean {

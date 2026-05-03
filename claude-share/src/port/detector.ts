@@ -1,11 +1,10 @@
 import net from "node:net";
-import type { Duplex } from "node:stream";
 
 type Handler = (socket: net.Socket) => void;
 
 interface PortDetectorOptions {
   onConnect: Handler; // HTTP CONNECT (proxy traffic)
-  onHttp: Handler;    // plain HTTP (API server traffic)
+  onHttp: Handler; // plain HTTP (API server traffic)
 }
 
 /**
@@ -20,10 +19,6 @@ export function createPortDetector(options: PortDetectorOptions): net.Server {
 
       // Unshift the chunk back so the handler sees a complete stream
       const handler = isConnect ? options.onConnect : options.onHttp;
-
-      const replay = new net.Socket();
-      // We need to re-inject the buffered chunk into the socket for the handler.
-      // The cleanest way: create a passthrough and push the peeked chunk back.
       socket.unshift(chunk);
       handler(socket);
     });

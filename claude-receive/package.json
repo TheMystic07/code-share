@@ -8,7 +8,9 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsx src/index.ts",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "lint": "oxlint src",
+    "fmt": "oxfmt src"
   },
   "dependencies": {
     "@clack/prompts": "latest",
@@ -17,6 +19,8 @@
   },
   "devDependencies": {
     "@types/node": "latest",
+    "oxfmt": "0.47.0",
+    "oxlint": "1.62.0",
     "tsx": "latest",
     "typescript": "latest"
   }

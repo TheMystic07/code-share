@@ -2,11 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Box, Text, useInput, useApp } from "ink";
 import { Stats } from "./Stats.js";
 import { Sessions } from "./Sessions.js";
-import {
-  getSession,
-  revokeConnection,
-  type Connection,
-} from "../session/manager.js";
+import { getSession, revokeConnection, type Connection } from "../session/manager.js";
 
 interface Props {
   publicUrl: string | null;
@@ -71,9 +67,7 @@ export function App({
       />
       <Sessions connections={connections} onRevoke={handleRevoke} />
       <Box marginTop={1}>
-        <Text dimColor>
-          Press q to stop sharing and disconnect all receivers
-        </Text>
+        <Text dimColor>Press q to stop sharing and disconnect all receivers</Text>
       </Box>
     </Box>
   );

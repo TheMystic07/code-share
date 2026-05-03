@@ -8,11 +8,7 @@ import React from "react";
 
 import { initToken, stopTokenRefresh } from "./proxy/token.js";
 import { generateEphemeralCA } from "./ca/generator.js";
-import {
-  createSession,
-  destroySession,
-  isSessionExpired,
-} from "./session/manager.js";
+import { createSession, destroySession, isSessionExpired } from "./session/manager.js";
 import { createMitmProxy } from "./proxy/mitm.js";
 import { createPortDetector } from "./port/detector.js";
 import { createApiApp } from "./server/index.js";

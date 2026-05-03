@@ -24,8 +24,10 @@ async function readFromKeychain(): Promise<OAuthCredentials> {
   const username = os.userInfo().username;
   const { stdout } = await execFileAsync("security", [
     "find-generic-password",
-    "-s", "Claude Code-credentials",
-    "-a", username,
+    "-s",
+    "Claude Code-credentials",
+    "-a",
+    username,
     "-w",
   ]);
   const payload: KeychainPayload = JSON.parse(stdout.trim());
@@ -46,7 +48,7 @@ async function refreshAccessToken(refreshToken: string): Promise<OAuthCredential
   if (!resp.ok) {
     throw new Error(`Token refresh failed: ${resp.status} ${await resp.text()}`);
   }
-  const data = await resp.json() as {
+  const data = (await resp.json()) as {
     access_token: string;
     refresh_token: string;
     expires_in: number;

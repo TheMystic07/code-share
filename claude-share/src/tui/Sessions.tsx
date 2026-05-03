@@ -14,7 +14,7 @@ function formatDuration(from: Date): string {
   return `${Math.floor(secs / 3600)}h ${Math.floor((secs % 3600) / 60)}m`;
 }
 
-export function Sessions({ connections, onRevoke }: Props) {
+export function Sessions({ connections, onRevoke: _onRevoke }: Props) {
   const active = connections.filter((c) => c.status === "active");
 
   if (active.length === 0) {

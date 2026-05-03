@@ -4,7 +4,6 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
-import { webcrypto } from "node:crypto";
 import * as p from "@clack/prompts";
 import { xchacha20poly1305 } from "@noble/ciphers/chacha.js";
 
@@ -56,8 +55,7 @@ function loadConnections(): SavedConnection[] {
 
 // ── Base58 decode ────────────────────────────────────────────────────────────
 
-const BASE58_ALPHABET =
-  "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+const BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
 function fromBase58(str: string): Uint8Array {
   let num = 0n;
@@ -183,10 +181,7 @@ async function pairFlow() {
     caPem: file.caPem,
     savedAt: new Date().toISOString(),
   };
-  fs.writeFileSync(
-    connectionPath(connectionId),
-    JSON.stringify(saved, null, 2),
-  );
+  fs.writeFileSync(connectionPath(connectionId), JSON.stringify(saved, null, 2));
 
   launchClaude(file, saved);
 }
@@ -252,9 +247,7 @@ async function listFlow() {
   console.log("\nSaved connections:\n");
   for (const c of connections) {
     const alive = await checkHealth(c.serverUrl);
-    const status = alive
-      ? "\x1b[32m● online\x1b[0m"
-      : "\x1b[90m○ offline\x1b[0m";
+    const status = alive ? "\x1b[32m● online\x1b[0m" : "\x1b[90m○ offline\x1b[0m";
     console.log(`  ${status}  ${c.name}  ${c.serverUrl}`);
     console.log(`           id: ${c.id}`);
     console.log(`           saved: ${new Date(c.savedAt).toLocaleString()}\n`);
@@ -263,17 +256,12 @@ async function listFlow() {
 
 // ── Launch claude ─────────────────────────────────────────────────────────────
 
-function launchClaude(
-  file: Pick<ConnectionFile, "serverUrl" | "caPem">,
-  meta: { name: string },
-) {
+function launchClaude(file: Pick<ConnectionFile, "serverUrl" | "caPem">, meta: { name: string }) {
   // Write CA cert to a temp file
   const tmpCert = path.join(os.tmpdir(), `claude-share-ca-${Date.now()}.pem`);
   fs.writeFileSync(tmpCert, file.caPem, { mode: 0o600 });
 
-  p.log.success(
-    `Launching Claude as ${meta.name}. All API calls proxied through sharer.`,
-  );
+  p.log.success(`Launching Claude as ${meta.name}. All API calls proxied through sharer.`);
   p.log.info("Press Ctrl+C to exit and disconnect.");
   p.outro("");
 
@@ -305,9 +293,7 @@ function launchClaude(
   child.on("exit", (code) => cleanupAndExit(code));
   child.on("error", (err) => {
     console.error("\nFailed to launch claude:", err.message);
-    console.error(
-      "Is 'claude' installed? Run: npm install -g @anthropic-ai/claude-code",
-    );
+    console.error("Is 'claude' installed? Run: npm install -g @anthropic-ai/claude-code");
     try {
       fs.unlinkSync(tmpCert);
     } catch {}

@@ -16,33 +16,40 @@ const CTX_LOG_ID = Symbol("logId");
 const INTERCEPT_DOMAINS = new Set([
   "api.anthropic.com",
   "platform.anthropic.com",
+  "platform.claude.com",
   "mcp-proxy.anthropic.com",
 ]);
 
-// API paths allowed on api.anthropic.com
-const ALLOWED_PATHS: Array<{ method: string | null; prefix: string }> = [
+// api.anthropic.com allowed paths
+const API_ALLOWED_PATHS: Array<{ method: string | null; prefix: string }> = [
+  { method: null, prefix: "/api/hello" },
   { method: "POST", prefix: "/v1/messages" },
   { method: "GET", prefix: "/v1/models" },
 ];
 
 // api.anthropic.com paths that are always blocked regardless of method
-const BLOCKED_PATH_PREFIXES = ["/v1/files", "/v1/fine_tuning", "/v1/assistants"];
-
-// platform.anthropic.com: allow /api/auth/* only
-function isPlatformAllowed(reqPath: string): boolean {
-  return reqPath.startsWith("/api/auth/");
-}
+const API_BLOCKED_PREFIXES = ["/v1/files", "/v1/fine_tuning", "/v1/assistants"];
 
 function isApiAllowed(method: string, reqPath: string): boolean {
-  for (const blocked of BLOCKED_PATH_PREFIXES) {
+  for (const blocked of API_BLOCKED_PREFIXES) {
     if (reqPath.startsWith(blocked)) return false;
   }
-  for (const allowed of ALLOWED_PATHS) {
+  for (const allowed of API_ALLOWED_PATHS) {
     if (reqPath.startsWith(allowed.prefix)) {
       if (allowed.method === null || allowed.method === method.toUpperCase()) return true;
     }
   }
   return false;
+}
+
+// platform.anthropic.com allowed paths
+function isPlatformAnthropicAllowed(reqPath: string): boolean {
+  return reqPath.startsWith("/api/auth/");
+}
+
+// platform.claude.com allowed paths
+function isPlatformClaudeAllowed(reqPath: string): boolean {
+  return reqPath.startsWith("/v1/oauth/");
 }
 
 export interface MitmProxy {
@@ -93,7 +100,13 @@ export async function createMitmProxy(connectionId?: string): Promise<MitmProxy>
         ctx.proxyToClientResponse.end("Not allowed by claude-share policy");
         return;
       }
-      if (hostname === "platform.anthropic.com" && !isPlatformAllowed(reqPath)) {
+      if (hostname === "platform.anthropic.com" && !isPlatformAnthropicAllowed(reqPath)) {
+        logRequest(method, hostname, reqPath, "blocked");
+        ctx.proxyToClientResponse.writeHead(403, { "Content-Type": "text/plain" });
+        ctx.proxyToClientResponse.end("Not allowed by claude-share policy");
+        return;
+      }
+      if (hostname === "platform.claude.com" && !isPlatformClaudeAllowed(reqPath)) {
         logRequest(method, hostname, reqPath, "blocked");
         ctx.proxyToClientResponse.writeHead(403, { "Content-Type": "text/plain" });
         ctx.proxyToClientResponse.end("Not allowed by claude-share policy");

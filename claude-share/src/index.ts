@@ -85,7 +85,7 @@ async function main() {
   let tunnel: Awaited<ReturnType<typeof startTunnel>>;
   let publicUrl: string | null = null;
 
-  const useTunnel = process.env.TUNNEL === "1" || process.env.TUNNEL === "true";
+  const useTunnel = process.env.TUNNEL !== "0" && process.env.TUNNEL !== "false";
 
   if (useTunnel) {
     console.log("Starting Cloudflare tunnel...");

@@ -1,0 +1,23 @@
+{
+  "name": "claude-receive",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "claude-receive": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@clack/prompts": "latest",
+    "@noble/ciphers": "latest",
+    "reflect-metadata": "latest"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "tsx": "latest",
+    "typescript": "latest"
+  }
+}

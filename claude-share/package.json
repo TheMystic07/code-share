@@ -25,7 +25,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "dev": "NODE_ENV=development bun src/index.ts",
+    "dev": "bun src/index.ts",
     "start": "node dist/index.js",
     "lint": "oxlint src",
     "fmt": "oxfmt --config ../.oxfmtrc.json src",

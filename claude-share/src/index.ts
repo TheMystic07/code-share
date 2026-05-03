@@ -85,7 +85,9 @@ async function main() {
   let tunnel: Awaited<ReturnType<typeof startTunnel>>;
   let publicUrl: string | null = null;
 
-  if (process.env.NODE_ENV !== "development") {
+  const useTunnel = process.env.TUNNEL === "1" || process.env.TUNNEL === "true";
+
+  if (useTunnel) {
     console.log("Starting Cloudflare tunnel...");
     try {
       tunnel = await startTunnel(PORT);
@@ -96,7 +98,6 @@ async function main() {
       tunnel = { publicUrl: null, close: () => {} };
     }
   } else {
-    console.log("Development mode — skipping tunnel.");
     tunnel = { publicUrl: null, close: () => {} };
   }
 

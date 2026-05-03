@@ -2,8 +2,11 @@ import { Box, Text, useInput, useApp } from "ink";
 import React, { useState, useEffect } from "react";
 
 import { getSession, revokeConnection, type Connection } from "../session/manager.js";
+import { RequestLog } from "./RequestLog.js";
 import { Sessions } from "./Sessions.js";
 import { Stats } from "./Stats.js";
+
+const IS_DEV = process.env.NODE_ENV === "development";
 
 interface Props {
   publicUrl: string | null;
@@ -67,6 +70,7 @@ export function App({
         totalRequests={totalRequests}
       />
       <Sessions connections={connections} onRevoke={handleRevoke} />
+      {IS_DEV && <RequestLog />}
       <Box marginTop={1}>
         <Text dimColor>Press q to stop sharing and disconnect all receivers</Text>
       </Box>

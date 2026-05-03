@@ -4,6 +4,7 @@ import { Proxy } from "http-mitm-proxy";
 
 import type { EphemeralCA } from "../ca/generator.js";
 import { recordRequest, getSession } from "../session/manager.js";
+import { logRequest, setResponseStatus } from "./requestLog.js";
 import { getAccessToken } from "./token.js";
 
 // Domains the proxy intercepts and forwards to Anthropic with injected token
@@ -69,27 +70,32 @@ export function createMitmProxy(ca: EphemeralCA, connectionId?: string): MitmPro
 
     // Block entirely
     if (BLOCKED_DOMAINS.has(hostname)) {
+      logRequest(method, hostname, path, "blocked");
       ctx.proxyToClientResponse.writeHead(403, { "Content-Type": "text/plain" });
       ctx.proxyToClientResponse.end("Blocked by claude-share");
       return;
     }
 
     if (!INTERCEPT_DOMAINS.has(hostname)) {
-      // Pass through unknown domains without modification
+      logRequest(method, hostname, path, "passthrough");
       return callback();
     }
 
     // Enforce allowlist per domain
     if (hostname === "api.anthropic.com" && !isApiAllowed(method, path)) {
+      logRequest(method, hostname, path, "blocked");
       ctx.proxyToClientResponse.writeHead(403, { "Content-Type": "text/plain" });
       ctx.proxyToClientResponse.end("Not allowed by claude-share policy");
       return;
     }
     if (hostname === "platform.anthropic.com" && !isPlatformAllowed(path)) {
+      logRequest(method, hostname, path, "blocked");
       ctx.proxyToClientResponse.writeHead(403, { "Content-Type": "text/plain" });
       ctx.proxyToClientResponse.end("Not allowed by claude-share policy");
       return;
     }
+
+    const logId = logRequest(method, hostname, path, "allowed");
 
     // Inject real Bearer token; strip any dummy token the receiver sent
     ctx.proxyToServerRequestOptions.headers = ctx.proxyToServerRequestOptions.headers ?? {};
@@ -104,6 +110,12 @@ export function createMitmProxy(ca: EphemeralCA, connectionId?: string): MitmPro
       const session = getSession();
       if (session) recordRequest(session, connectionId);
     }
+
+    // Capture response status
+    ctx.onResponse((rCtx: any, next: () => void) => {
+      setResponseStatus(logId, rCtx.serverToProxyResponse.statusCode ?? 0);
+      next();
+    });
 
     callback();
   });

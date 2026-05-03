@@ -86,6 +86,16 @@ function decryptBlob(blob: string, pairingCode: string): ConnectionFile {
   return JSON.parse(new TextDecoder().decode(plaintext)) as ConnectionFile;
 }
 
+// ── Connect URL ───────────────────────────────────────────────────────────────
+// Format: http://host:port/connect/<pairingCode>
+// The server does not need to handle this path — it's parsed client-side only.
+
+function parseConnectUrl(url: string): { serverUrl: string; pairingCode: string } | null {
+  const match = url.match(/^(https?:\/\/.+?)\/connect\/([A-Za-z0-9]+)$/);
+  if (!match) return null;
+  return { serverUrl: match[1], pairingCode: match[2] };
+}
+
 // ── Health check ─────────────────────────────────────────────────────────────
 
 async function checkHealth(serverUrl: string): Promise<boolean> {
@@ -102,26 +112,46 @@ async function checkHealth(serverUrl: string): Promise<boolean> {
 
 // ── Pair flow ────────────────────────────────────────────────────────────────
 
-async function pairFlow() {
+async function pairFlow(
+  prefill?: { serverUrl: string; pairingCode: string },
+  claudeArgs: string[] = [],
+) {
   p.intro("claude-receive — pair with a new sharer");
 
-  const serverUrl = await p.text({
-    message: "Sharer URL (from their terminal):",
-    placeholder: "http://192.168.x.x:8080",
-    validate: (v) => (v?.startsWith("http") ? undefined : "Must be a URL"),
-  });
-  if (p.isCancel(serverUrl)) {
-    p.cancel("Cancelled.");
-    process.exit(0);
-  }
+  let serverUrl: string;
+  let pairingCode: string;
 
-  const pairingCode = await p.text({
-    message: "Pairing code (from their terminal):",
-    validate: (v) => ((v?.trim().length ?? 0) > 0 ? undefined : "Required"),
-  });
-  if (p.isCancel(pairingCode)) {
-    p.cancel("Cancelled.");
-    process.exit(0);
+  if (prefill) {
+    serverUrl = prefill.serverUrl;
+    pairingCode = prefill.pairingCode;
+    p.log.info(`Connecting to ${serverUrl}`);
+  } else {
+    const input = await p.text({
+      message: "Connect link or sharer URL:",
+      placeholder: "http://192.168.x.x:8080/connect/CODE",
+      validate: (v) => (v?.startsWith("http") ? undefined : "Must be a URL"),
+    });
+    if (p.isCancel(input)) {
+      p.cancel("Cancelled.");
+      process.exit(0);
+    }
+
+    const parsed = parseConnectUrl(input as string);
+    if (parsed) {
+      serverUrl = parsed.serverUrl;
+      pairingCode = parsed.pairingCode;
+    } else {
+      serverUrl = input as string;
+      const codeInput = await p.text({
+        message: "Pairing code (from their terminal):",
+        validate: (v) => ((v?.trim().length ?? 0) > 0 ? undefined : "Required"),
+      });
+      if (p.isCancel(codeInput)) {
+        p.cancel("Cancelled.");
+        process.exit(0);
+      }
+      pairingCode = (codeInput as string).trim();
+    }
   }
 
   const name = await p.text({
@@ -162,7 +192,7 @@ async function pairFlow() {
 
   let file: ConnectionFile;
   try {
-    file = decryptBlob(blob, pairingCode as string);
+    file = decryptBlob(blob, pairingCode);
   } catch {
     spin.stop("Decryption failed.");
     p.log.error("Wrong pairing code or corrupted response.");
@@ -171,7 +201,6 @@ async function pairFlow() {
 
   spin.stop("Paired successfully.");
 
-  // Save connection for reconnect
   ensureConnectionsDir();
   const saved: SavedConnection = {
     id: connectionId,
@@ -183,12 +212,12 @@ async function pairFlow() {
   };
   fs.writeFileSync(connectionPath(connectionId), JSON.stringify(saved, null, 2));
 
-  launchClaude(file.serverUrl, file.caPem, saved);
+  launchClaude(file.serverUrl, file.caPem, saved, claudeArgs);
 }
 
 // ── Reconnect flow ────────────────────────────────────────────────────────────
 
-async function reconnectFlow(uuid?: string) {
+async function reconnectFlow(uuid?: string, claudeArgs: string[] = []) {
   const connections = loadConnections();
 
   if (connections.length === 0) {
@@ -206,7 +235,6 @@ async function reconnectFlow(uuid?: string) {
     }
     chosen = match;
   } else {
-    // Interactive picker
     p.intro("claude-receive — reconnect");
     const pick = await p.select({
       message: "Choose a connection:",
@@ -232,7 +260,7 @@ async function reconnectFlow(uuid?: string) {
   }
   spin.stop("Server is alive.");
 
-  launchClaude(chosen.serverUrl, chosen.caPem, chosen);
+  launchClaude(chosen.serverUrl, chosen.caPem, chosen, claudeArgs);
 }
 
 // ── List flow ────────────────────────────────────────────────────────────────
@@ -270,21 +298,26 @@ function ensureOnboarding() {
   }
 }
 
-function launchClaude(proxyUrl: string, caPem: string, meta: { name: string }) {
+function launchClaude(
+  proxyUrl: string,
+  caPem: string,
+  meta: { name: string },
+  claudeArgs: string[] = [],
+) {
   ensureOnboarding();
 
-  // Write CA cert to a temp file
   const tmpCert = path.join(os.tmpdir(), `claude-share-ca-${Date.now()}.pem`);
   fs.writeFileSync(tmpCert, caPem, { mode: 0o600 });
 
   p.log.success(`Launching Claude as ${meta.name}. All API calls proxied through sharer.`);
   p.log.info(`Proxy: ${proxyUrl}`);
+  if (claudeArgs.length > 0) p.log.info(`Extra args: ${claudeArgs.join(" ")}`);
   p.log.info("Press Ctrl+C to exit and disconnect.");
   p.outro("");
 
   const startTime = Date.now();
 
-  const child = spawn("claude", [], {
+  const child = spawn("claude", claudeArgs, {
     stdio: "inherit",
     env: {
       ...process.env,
@@ -295,11 +328,9 @@ function launchClaude(proxyUrl: string, caPem: string, meta: { name: string }) {
   });
 
   function cleanupAndExit(code: number | null) {
-    // Remove temp cert
     try {
       fs.unlinkSync(tmpCert);
     } catch {}
-
     const duration = Math.floor((Date.now() - startTime) / 1000);
     const mins = Math.floor(duration / 60);
     const secs = duration % 60;
@@ -317,19 +348,43 @@ function launchClaude(proxyUrl: string, caPem: string, meta: { name: string }) {
     process.exit(1);
   });
 
-  // Forward signals to child
   process.on("SIGINT", () => child.kill("SIGINT"));
   process.on("SIGTERM", () => child.kill("SIGTERM"));
 }
 
-// ── Main ──────────────────────────────────────────────────────────────────────
+// ── Arg parsing ───────────────────────────────────────────────────────────────
 
 const args = process.argv.slice(2);
+
+// Identify which arg indices belong to claude-receive itself
+const ownIdxs = new Set<number>();
+args.forEach((a, i) => {
+  if (a === "--list" || a === "-l") ownIdxs.add(i);
+  if (a === "--reconnect" || a === "-r") {
+    ownIdxs.add(i);
+    // next arg is the optional UUID, not a claude flag
+    if (args[i + 1] && !args[i + 1].startsWith("-")) ownIdxs.add(i + 1);
+  }
+  if (a.startsWith("--share=")) ownIdxs.add(i);
+});
+
+// Everything else is forwarded to the claude process
+const claudeArgs = args.filter((_, i) => !ownIdxs.has(i));
+
+const shareArg = args.find((a) => a.startsWith("--share="));
 
 if (args[0] === "--list" || args[0] === "-l") {
   await listFlow();
 } else if (args[0] === "--reconnect" || args[0] === "-r") {
-  await reconnectFlow(args[1]);
+  await reconnectFlow(args[1], claudeArgs);
+} else if (shareArg) {
+  const connectUrl = shareArg.slice("--share=".length);
+  const parsed = parseConnectUrl(connectUrl);
+  if (!parsed) {
+    console.error("Invalid --share URL. Expected: http://host:port/connect/PAIRINGCODE");
+    process.exit(1);
+  }
+  await pairFlow(parsed, claudeArgs);
 } else {
-  await pairFlow();
+  await pairFlow(undefined, claudeArgs);
 }

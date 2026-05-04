@@ -441,6 +441,11 @@ function cleanupFlow(): void {
   process.exit(0);
 }
 
+async function checkClaudeInstalled(): Promise<boolean> {
+  const which = process.platform === "win32" ? "where" : "which";
+  return execFileAsync(which, ["claude"]).then(() => true).catch(() => false);
+}
+
 async function launchClaude(
   proxyUrl: string,
   caPem: string,
@@ -448,6 +453,12 @@ async function launchClaude(
   claudeArgs: string[] = [],
   sharerAccount: SharerAccount | null = null,
 ) {
+  if (!(await checkClaudeInstalled())) {
+    p.log.error("Claude Code is not installed or not in PATH.");
+    p.log.info("Install it with: npm install -g @anthropic-ai/claude-code");
+    process.exit(1);
+  }
+
   ensureOnboarding();
   await ensureCredentials();
 

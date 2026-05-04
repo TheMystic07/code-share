@@ -108,6 +108,13 @@ function loadConnections(): SavedConnection[] {
     .filter(Boolean) as SavedConnection[];
 }
 
+function findConnectionByServerUrl(serverUrl: string): SavedConnection | null {
+  const all = loadConnections().filter((c) => c.serverUrl === serverUrl);
+  if (all.length === 0) return null;
+  // Most recently saved wins
+  return all.sort((a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime())[0];
+}
+
 // ── Base58 decode ────────────────────────────────────────────────────────────
 
 const BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
@@ -153,15 +160,23 @@ function parseConnectUrl(url: string): { serverUrl: string; pairingCode: string 
 
 // ── Health check ─────────────────────────────────────────────────────────────
 
-async function checkHealth(serverUrl: string): Promise<boolean> {
+interface HealthResult {
+  alive: boolean;
+  sessionId: string | null;
+}
+
+async function checkHealth(serverUrl: string): Promise<HealthResult> {
   try {
     const res = await fetch(`${serverUrl}/health`, {
       signal: AbortSignal.timeout(5000),
     });
-    const body = (await res.json()) as { ok: boolean; sessionActive: boolean };
-    return body.ok && body.sessionActive;
+    const body = (await res.json()) as { ok: boolean; sessionActive: boolean; sessionId?: string };
+    return {
+      alive: body.ok && body.sessionActive,
+      sessionId: body.sessionId ?? null,
+    };
   } catch {
-    return false;
+    return { alive: false, sessionId: null };
   }
 }
 
@@ -303,7 +318,7 @@ async function reconnectFlow(uuid?: string, claudeArgs: string[] = []) {
 
   const spin = p.spinner();
   spin.start(`Checking ${chosen.serverUrl}...`);
-  const alive = await checkHealth(chosen.serverUrl);
+  const { alive } = await checkHealth(chosen.serverUrl);
   if (!alive) {
     spin.stop("Server offline or session expired.");
     process.exit(1);
@@ -324,7 +339,7 @@ async function listFlow() {
 
   console.log("\nSaved connections:\n");
   for (const c of connections) {
-    const alive = await checkHealth(c.serverUrl);
+    const { alive } = await checkHealth(c.serverUrl);
     const status = alive ? "\x1b[32m● online\x1b[0m" : "\x1b[90m○ offline\x1b[0m";
     console.log(`  ${status}  ${c.name}  ${c.serverUrl}`);
     console.log(`           id: ${c.id}`);
@@ -600,23 +615,23 @@ args.forEach((a, i) => {
   if (a === "--cleanup") ownIdxs.add(i);
   if (a === "--reconnect" || a === "-r") {
     ownIdxs.add(i);
-    // next arg is the optional UUID, not a claude flag
     if (args[i + 1] && !args[i + 1].startsWith("-")) ownIdxs.add(i + 1);
   }
   if (a.startsWith("--share=")) ownIdxs.add(i);
 });
 
-// Everything else is forwarded to the claude process
 const claudeArgs = args.filter((_, i) => !ownIdxs.has(i));
-
 const shareArg = args.find((a) => a.startsWith("--share="));
 
 if (args[0] === "--cleanup") {
   cleanupFlow();
+
 } else if (args[0] === "--list" || args[0] === "-l") {
   await listFlow();
+
 } else if (args[0] === "--reconnect" || args[0] === "-r") {
   await reconnectFlow(args[1], claudeArgs);
+
 } else if (shareArg) {
   const connectUrl = shareArg.slice("--share=".length).trim();
   const parsed = parseConnectUrl(connectUrl);
@@ -624,7 +639,71 @@ if (args[0] === "--cleanup") {
     console.error("Invalid --share URL. Expected: http://host:port/connect/PAIRINGCODE");
     process.exit(1);
   }
-  await pairFlow(parsed, claudeArgs);
+
+  // Check if we already have credentials for this sharer
+  const existing = findConnectionByServerUrl(parsed.serverUrl);
+  if (existing) {
+    const health = await checkHealth(existing.serverUrl);
+    if (health.alive && health.sessionId === existing.sessionId) {
+      // Same session still running — skip pairing entirely
+      p.intro("claude-receive");
+      p.log.info(`Resuming existing connection for ${existing.name}`);
+      await launchClaude(existing.serverUrl, existing.caPem, existing, claudeArgs, existing.sharerAccount ?? null);
+    } else if (!health.alive) {
+      p.log.error("Sharer is offline or the session has expired. Ask the sharer for a new connect URL.");
+      process.exit(1);
+    } else {
+      // Sharer restarted (new sessionId) — must pair fresh
+      await pairFlow(parsed, claudeArgs);
+    }
+  } else {
+    await pairFlow(parsed, claudeArgs);
+  }
+
 } else {
-  await pairFlow(undefined, claudeArgs);
+  // No --share flag: check for active saved connections first
+  const saved = loadConnections();
+
+  if (saved.length > 0) {
+    const spin = p.spinner();
+    spin.start("Checking active sharers...");
+    const results = await Promise.all(
+      saved.map(async (c) => {
+        const health = await checkHealth(c.serverUrl);
+        return { conn: c, alive: health.alive && health.sessionId === c.sessionId };
+      }),
+    );
+    spin.stop();
+
+    const active = results.filter((r) => r.alive).map((r) => r.conn);
+
+    if (active.length > 0) {
+      p.intro("claude-receive");
+      const pick = await p.select({
+        message: "Connect to an active sharer or pair with a new one:",
+        options: [
+          ...active.map((c) => ({
+            value: c.id,
+            label: c.name,
+            hint: c.serverUrl,
+          })),
+          { value: "__new__", label: "Pair with a new sharer…", hint: "enter a connect URL" },
+        ],
+      });
+      if (p.isCancel(pick)) {
+        p.cancel("Cancelled.");
+        process.exit(0);
+      }
+      if (pick === "__new__") {
+        await pairFlow(undefined, claudeArgs);
+      } else {
+        const chosen = active.find((c) => c.id === pick)!;
+        await launchClaude(chosen.serverUrl, chosen.caPem, chosen, claudeArgs, chosen.sharerAccount ?? null);
+      }
+    } else {
+      await pairFlow(undefined, claudeArgs);
+    }
+  } else {
+    await pairFlow(undefined, claudeArgs);
+  }
 }

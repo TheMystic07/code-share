@@ -23,7 +23,11 @@ export function createApiApp(urls: Urls, caPem: string, sharerAccount: SharerAcc
 
   app.get("/health", (c) => {
     const session = getSession();
-    return c.json({ ok: true, sessionActive: !!session && !isSessionExpired(session) });
+    return c.json({
+      ok: true,
+      sessionActive: !!session && !isSessionExpired(session),
+      sessionId: session?.id ?? null,
+    });
   });
 
   /** POST /pair — one-time pairing with a machine */

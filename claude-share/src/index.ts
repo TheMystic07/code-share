@@ -59,8 +59,11 @@ async function main() {
   const mitmProxy = await createMitmProxy();
   console.log("MITM proxy ready.");
 
+  // Mutable — publicUrl is filled in after the tunnel starts
+  const urls = { public: null as string | null, lan: lanUrl };
+
   // Hono API on a localhost-only port; port detector pipes plain HTTP to it
-  const apiApp = createApiApp(lanUrl ?? loopbackUrl, mitmProxy.caCertPem);
+  const apiApp = createApiApp(urls, mitmProxy.caCertPem);
   const honoServer = serve({
     fetch: apiApp.fetch,
     port: API_PORT,
@@ -92,6 +95,7 @@ async function main() {
     try {
       tunnel = await startTunnel(PORT);
       publicUrl = tunnel.publicUrl;
+      urls.public = publicUrl;
       console.log(`Tunnel active: ${publicUrl}`);
     } catch (err) {
       console.warn("Could not start tunnel", (err as Error).message);

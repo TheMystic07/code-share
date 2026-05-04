@@ -36,7 +36,8 @@ export interface Connection {
 }
 
 export interface ConnectionFile {
-  serverUrl: string;
+  publicServerUrl: string | null;
+  lanServerUrl: string | null;
   sessionId: string;
   caPem: string;
 }

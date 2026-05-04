@@ -10,7 +10,8 @@ import { xchacha20poly1305 } from "@noble/ciphers/chacha.js";
 // ── Types shared with claude-share ──────────────────────────────────────────
 
 interface ConnectionFile {
-  serverUrl: string;
+  publicServerUrl: string | null;
+  lanServerUrl: string | null;
   sessionId: string;
   caPem: string;
 }
@@ -205,14 +206,14 @@ async function pairFlow(
   const saved: SavedConnection = {
     id: connectionId,
     name: name as string,
-    serverUrl: file.serverUrl,
+    serverUrl,
     sessionId: file.sessionId,
     caPem: file.caPem,
     savedAt: new Date().toISOString(),
   };
   fs.writeFileSync(connectionPath(connectionId), JSON.stringify(saved, null, 2));
 
-  await launchClaude(file.serverUrl, file.caPem, saved, claudeArgs);
+  await launchClaude(serverUrl, file.caPem, saved, claudeArgs);
 }
 
 // ── Reconnect flow ────────────────────────────────────────────────────────────

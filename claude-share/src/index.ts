@@ -11,7 +11,7 @@ import React from "react";
 
 import { createPortDetector } from "./port/detector.js";
 import { createMitmProxy } from "./proxy/mitm.js";
-import { initToken, stopTokenRefresh, getAccessToken } from "./proxy/token.js";
+import { initToken, stopTokenRefresh } from "./proxy/token.js";
 import { createApiApp } from "./server/index.js";
 import {
   createSession,
@@ -52,59 +52,14 @@ function getLanIp(): string | null {
   return null;
 }
 
-function formatTime(d: Date): string {
-  return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-}
-
-async function fetchResetTime(): Promise<Date | null> {
-  try {
-    const resp = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${getAccessToken()}`,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 1,
-        messages: [{ role: "user", content: "hi" }],
-      }),
-      signal: AbortSignal.timeout(8_000),
-    });
-    const raw =
-      resp.headers.get("anthropic-ratelimit-tokens-reset") ??
-      resp.headers.get("x-ratelimit-reset-tokens");
-    if (raw) {
-      const d = new Date(raw);
-      if (!isNaN(d.getTime()) && d > new Date()) return d;
-    }
-  } catch {}
-  return null;
-}
-
 async function promptDuration(): Promise<number> {
-  const spin = p.spinner();
-  spin.start("Checking usage reset time...");
-  const resetTime = await fetchResetTime();
-  spin.stop();
-
-  const staticOptions = [
-    { value: 6 * 60 * 60 * 1000, label: "6 hours" },
-    { value: 24 * 60 * 60 * 1000, label: "24 hours" },
-    { value: 7 * 24 * 60 * 60 * 1000, label: "1 week" },
-  ];
-
-  const options = resetTime
-    ? [
-        { value: resetTime.getTime() - Date.now(), label: `Till this session ends — ${formatTime(resetTime)}` },
-        ...staticOptions,
-      ]
-    : staticOptions;
-
   const choice = await p.select({
     message: "How long do you want to share?",
-    options,
+    options: [
+      { value: 6 * 60 * 60 * 1000, label: "6 hours" },
+      { value: 24 * 60 * 60 * 1000, label: "24 hours" },
+      { value: 7 * 24 * 60 * 60 * 1000, label: "1 week" },
+    ],
   });
 
   if (p.isCancel(choice)) {

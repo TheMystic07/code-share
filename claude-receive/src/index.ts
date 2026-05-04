@@ -212,7 +212,7 @@ async function pairFlow(
   };
   fs.writeFileSync(connectionPath(connectionId), JSON.stringify(saved, null, 2));
 
-  launchClaude(file.serverUrl, file.caPem, saved, claudeArgs);
+  await launchClaude(file.serverUrl, file.caPem, saved, claudeArgs);
 }
 
 // ── Reconnect flow ────────────────────────────────────────────────────────────
@@ -260,7 +260,7 @@ async function reconnectFlow(uuid?: string, claudeArgs: string[] = []) {
   }
   spin.stop("Server is alive.");
 
-  launchClaude(chosen.serverUrl, chosen.caPem, chosen, claudeArgs);
+  await launchClaude(chosen.serverUrl, chosen.caPem, chosen, claudeArgs);
 }
 
 // ── List flow ────────────────────────────────────────────────────────────────
@@ -298,13 +298,54 @@ function ensureOnboarding() {
   }
 }
 
-function launchClaude(
+async function ensureCredentials() {
+  if (process.platform !== "linux") return;
+
+  const credPath = path.join(os.homedir(), ".claude", ".credentials.json");
+  if (fs.existsSync(credPath)) return;
+
+  p.log.warn("No ~/.claude/.credentials.json found. Claude needs this to think you're logged in.");
+
+  const confirm = await p.confirm({
+    message: "Create a placeholder credentials file so Claude launches without a login prompt?",
+    initialValue: true,
+  });
+  if (p.isCancel(confirm) || !confirm) {
+    p.log.warn("Skipping credentials setup. Claude may redirect you to login.");
+    return;
+  }
+
+  const placeholder = {
+    claudeAiOauth: {
+      accessToken: "claude-relay",
+      refreshToken: "",
+      // Far-future expiry — the real token is injected by the proxy, this just needs to exist
+      expiresAt: 4102444800000,
+      scopes: [
+        "user:file_upload",
+        "user:inference",
+        "user:mcp_servers",
+        "user:profile",
+        "user:sessions:claude_code",
+      ],
+      subscriptionType: "pro",
+      rateLimitTier: "default_claude_ai",
+    },
+  };
+
+  fs.mkdirSync(path.join(os.homedir(), ".claude"), { recursive: true });
+  fs.writeFileSync(credPath, JSON.stringify(placeholder, null, 2), { mode: 0o600 });
+  p.log.success("Created ~/.claude/.credentials.json with placeholder credentials.");
+}
+
+async function launchClaude(
   proxyUrl: string,
   caPem: string,
   meta: { name: string },
   claudeArgs: string[] = [],
 ) {
   ensureOnboarding();
+  await ensureCredentials();
 
   const tmpCert = path.join(os.tmpdir(), `claude-share-ca-${Date.now()}.pem`);
   fs.writeFileSync(tmpCert, caPem, { mode: 0o600 });

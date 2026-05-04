@@ -7,14 +7,17 @@ const stream = fs.createWriteStream(LOG_FILE, { flags: "a" });
 
 const MAX_BODY = 64 * 1024; // 64 KB
 
+export type RequestOutcome = "INTERCEPTED" | "BLOCKED" | "PASSED";
+
 export interface DevLogEntry {
   ts: string;
+  outcome: RequestOutcome;
   method: string;
   host: string;
   path: string;
   requestHeaders: Record<string, string | string[] | undefined>;
   requestBody: string;
-  status: number | null;
+  httpStatus: number | null;
   responseHeaders: Record<string, string | string[] | undefined> | null;
 }
 

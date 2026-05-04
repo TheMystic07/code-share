@@ -110,6 +110,19 @@ export async function createMitmProxy(connectionId?: string): Promise<MitmProxy>
 
       if (hostname === "api.anthropic.com" && !isApiAllowed(method, reqPath)) {
         logRequest(method, hostname, reqPath, "blocked");
+        if (IS_DEV) {
+          writeDevLog({
+            ts: new Date().toISOString(),
+            outcome: "BLOCKED",
+            method,
+            host: hostname,
+            path: reqPath,
+            requestHeaders: ctx.clientToProxyRequest.headers,
+            requestBody: "",
+            httpStatus: null,
+            responseHeaders: null,
+          });
+        }
         ctx.proxyToClientResponse.writeHead(403, { "Content-Type": "text/plain" });
         ctx.proxyToClientResponse.end("Not allowed by claude-share policy");
         return;
@@ -140,15 +153,16 @@ export async function createMitmProxy(connectionId?: string): Promise<MitmProxy>
         if (session) recordRequest(session, connectionId);
       }
 
-      if (IS_DEV) {
+      if (IS_DEV && hostname === "api.anthropic.com") {
         ctx[DEV_ENTRY] = {
           ts: new Date().toISOString(),
+          outcome: "INTERCEPTED",
           method,
           host: hostname,
           path: reqPath,
           requestHeaders: ctx.clientToProxyRequest.headers,
           requestBody: "",
-          status: null,
+          httpStatus: null,
           responseHeaders: null,
         } satisfies DevLogEntry;
         ctx[DEV_CHUNKS] = [] as Buffer[];
@@ -162,9 +176,18 @@ export async function createMitmProxy(connectionId?: string): Promise<MitmProxy>
       if (logId !== undefined) {
         setResponseStatus(logId, ctx.serverToProxyResponse.statusCode ?? 0);
       }
+
+      // Strip any response headers that could leak the sharer's credentials
+      const respHeaders = ctx.serverToProxyResponse.headers;
+      if (respHeaders) {
+        delete respHeaders["authorization"];
+        delete respHeaders["set-cookie"];
+        delete respHeaders["x-api-key"];
+      }
+
       if (IS_DEV && ctx[DEV_ENTRY]) {
-        ctx[DEV_ENTRY].status = ctx.serverToProxyResponse.statusCode ?? null;
-        ctx[DEV_ENTRY].responseHeaders = ctx.serverToProxyResponse.headers ?? null;
+        ctx[DEV_ENTRY].httpStatus = ctx.serverToProxyResponse.statusCode ?? null;
+        ctx[DEV_ENTRY].responseHeaders = respHeaders ?? null;
       }
       callback();
     });

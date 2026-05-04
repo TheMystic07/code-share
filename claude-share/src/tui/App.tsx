@@ -40,6 +40,7 @@ interface Props {
   localPort: number;
   sharedUntil: Date;
   getSession: () => Session | null;
+  isTunnelDown: () => boolean;
   onExit: () => void;
 }
 
@@ -51,7 +52,7 @@ function copyToClipboard(text: string): void {
   proc.stdin.end();
 }
 
-export function App({ publicUrl, lanUrl, loopbackUrl, localPort, sharedUntil, getSession, onExit }: Props) {
+export function App({ publicUrl, lanUrl, loopbackUrl, localPort, sharedUntil, getSession, isTunnelDown, onExit }: Props) {
   const { exit } = useApp();
   const [view, setView] = useState<View>("pairing");
   const [pairingCode, setPairingCode] = useState(() => getSession()?.pairingCode ?? "");
@@ -60,6 +61,7 @@ export function App({ publicUrl, lanUrl, loopbackUrl, localPort, sharedUntil, ge
   const [selectedMachineId, setSelectedMachineId] = useState<string | null>(null);
   const [, setTick] = useState(0);
   const [copied, setCopied] = useState(false);
+  const [tunnelDown, setTunnelDown] = useState(false);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -68,6 +70,7 @@ export function App({ publicUrl, lanUrl, loopbackUrl, localPort, sharedUntil, ge
       setPairingCode(session.pairingCode);
       setMachines([...session.machines.values()]);
       setTick((t) => t + 1);
+      setTunnelDown(isTunnelDown());
       if (session.pairingCodeUsed) {
         setView((v) => (v === "pairing" ? "machines" : v));
       }
@@ -131,6 +134,7 @@ export function App({ publicUrl, lanUrl, loopbackUrl, localPort, sharedUntil, ge
         <Text bold color="cyan">claude-share</Text>
         <Text dimColor>{formatExpiry(sharedUntil)} remaining</Text>
         <Text dimColor>:{localPort}</Text>
+        {tunnelDown && <Text color="red">⚠ tunnel disconnected — receivers can't connect</Text>}
       </Box>
 
       {/* Pairing view */}

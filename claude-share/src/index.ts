@@ -129,13 +129,14 @@ async function main() {
 
   let tunnel: Awaited<ReturnType<typeof startTunnel>>;
   let publicUrl: string | null = null;
+  let tunnelDown = false;
 
   const useTunnel = process.env.TUNNEL !== "0" && process.env.TUNNEL !== "false";
 
   if (useTunnel) {
     console.log("Starting Cloudflare tunnel...");
     try {
-      tunnel = await startTunnel(PORT);
+      tunnel = await startTunnel(PORT, () => { tunnelDown = true; });
       publicUrl = tunnel.publicUrl;
       urls.public = publicUrl;
       console.log(`Tunnel active: ${publicUrl}`);
@@ -164,6 +165,7 @@ async function main() {
       localPort: PORT,
       sharedUntil: session.sharedUntil,
       getSession: () => getSession(),
+      isTunnelDown: () => tunnelDown,
       onExit: () => {
         cleanup();
         process.exit(0);

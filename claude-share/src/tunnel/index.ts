@@ -15,7 +15,7 @@ export interface Tunnel {
   close(): void;
 }
 
-export function startTunnel(localPort: number): Promise<Tunnel> {
+export function startTunnel(localPort: number, onDown?: () => void): Promise<Tunnel> {
   return new Promise((resolve, reject) => {
     const proc = spawn(
       cloudflaredBin,
@@ -24,6 +24,7 @@ export function startTunnel(localPort: number): Promise<Tunnel> {
     );
 
     let settled = false;
+    let closing = false;
     const timeout = setTimeout(() => {
       if (!settled) {
         settled = true;
@@ -34,7 +35,6 @@ export function startTunnel(localPort: number): Promise<Tunnel> {
 
     function onData(chunk: Buffer) {
       const text = chunk.toString();
-      // cloudflared prints the public URL to stderr
       const match = text.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/);
       if (match && !settled) {
         settled = true;
@@ -42,6 +42,7 @@ export function startTunnel(localPort: number): Promise<Tunnel> {
         resolve({
           publicUrl: match[0],
           close() {
+            closing = true;
             proc.kill();
           },
         });
@@ -64,6 +65,9 @@ export function startTunnel(localPort: number): Promise<Tunnel> {
         settled = true;
         clearTimeout(timeout);
         reject(new Error(`cloudflared exited with code ${code}`));
+      } else if (!closing) {
+        // Tunnel was up but died unexpectedly
+        onDown?.();
       }
     });
   });

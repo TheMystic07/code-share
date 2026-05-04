@@ -28,7 +28,10 @@ import { startTunnel } from "./tunnel/index.js";
 
 function readSharerAccount(): SharerAccount | null {
   try {
-    const raw = fs.readFileSync(path.join(os.homedir(), ".claude.json"), "utf8");
+    const raw = fs.readFileSync(
+      path.join(os.homedir(), ".claude.json"),
+      "utf8",
+    );
     const config = JSON.parse(raw) as Record<string, unknown>;
     const acct = config["oauthAccount"] as Record<string, string> | undefined;
     if (!acct) return null;
@@ -79,17 +82,22 @@ async function main() {
   const duration = await promptDuration();
   const session = createSession(duration);
 
-  const DEFAULT_PORT = 47821;
+  const DEFAULT_PORT = 2586;
   const argv = process.argv.slice(2);
   const portIdx = argv.findIndex((a) => a === "--port" || a === "-p");
-  const portEq = argv.find((a) => a.startsWith("--port=") || a.startsWith("-p="));
+  const portEq = argv.find(
+    (a) => a.startsWith("--port=") || a.startsWith("-p="),
+  );
   const portFlag =
-    portEq != null ? parseInt(portEq.split("=")[1], 10)
-    : portIdx !== -1 ? parseInt(argv[portIdx + 1], 10)
-    : null;
-  const PORT = (portFlag != null && !isNaN(portFlag))
-    ? portFlag
-    : parseInt(process.env.PORT ?? String(DEFAULT_PORT), 10);
+    portEq != null
+      ? parseInt(portEq.split("=")[1], 10)
+      : portIdx !== -1
+        ? parseInt(argv[portIdx + 1], 10)
+        : null;
+  const PORT =
+    portFlag != null && !isNaN(portFlag)
+      ? portFlag
+      : parseInt(process.env.PORT ?? String(DEFAULT_PORT), 10);
   // Internal port for the Hono API server — not exposed externally
   const API_PORT = PORT + 1;
 
@@ -132,22 +140,28 @@ async function main() {
   let publicUrl: string | null = null;
   let tunnelDown = false;
 
-  const useTunnel = process.env.TUNNEL !== "0" && process.env.TUNNEL !== "false";
+  const useTunnel =
+    process.env.TUNNEL !== "0" && process.env.TUNNEL !== "false";
 
   if (useTunnel) {
-    console.log("Starting Cloudflare tunnel...");
+    console.log("Starting bore tunnel...");
     try {
       tunnel = await startTunnel(PORT, () => {
         tunnelDown = true;
-        logger.error("Cloudflare tunnel disconnected unexpectedly");
+        logger.error("bore tunnel disconnected unexpectedly");
       });
       publicUrl = tunnel.publicUrl;
       urls.public = publicUrl;
-      logger.info(`Tunnel active: ${publicUrl}`);
-      console.log(`Tunnel active: ${publicUrl}`);
+      if (publicUrl) {
+        logger.info(`Tunnel active: ${publicUrl}`);
+        console.log(`Tunnel active: ${publicUrl}`);
+      } else {
+        console.warn("Unable to generate public URL");
+        logger.warn("bore did not return a port");
+      }
     } catch (err) {
-      console.warn("Could not start tunnel", (err as Error).message);
-      logger.warn("Could not start Cloudflare tunnel", err);
+      console.warn("Unable to generate public URL:", (err as Error).message);
+      logger.warn("Could not start bore tunnel", err);
       tunnel = { publicUrl: null, close: () => {} };
     }
   } else {

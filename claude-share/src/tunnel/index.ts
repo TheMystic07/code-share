@@ -1,14 +1,4 @@
 import { spawn } from "node:child_process";
-import { createRequire } from "node:module";
-
-// cloudflared npm package ships the binary at bin/cloudflared
-const require = createRequire(import.meta.url);
-let cloudflaredBin: string;
-try {
-  cloudflaredBin = require.resolve("cloudflared/bin/cloudflared");
-} catch {
-  cloudflaredBin = "cloudflared"; // fall back to PATH
-}
 
 export interface Tunnel {
   publicUrl: string | null;
@@ -17,11 +7,9 @@ export interface Tunnel {
 
 export function startTunnel(localPort: number, onDown?: () => void): Promise<Tunnel> {
   return new Promise((resolve, reject) => {
-    const proc = spawn(
-      cloudflaredBin,
-      ["tunnel", "--url", `http://localhost:${localPort}`, "--no-autoupdate"],
-      { stdio: ["ignore", "pipe", "pipe"] },
-    );
+    const proc = spawn("bore", ["local", String(localPort), "--to", "bore.pub"], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
 
     let settled = false;
     let closing = false;
@@ -29,18 +17,20 @@ export function startTunnel(localPort: number, onDown?: () => void): Promise<Tun
       if (!settled) {
         settled = true;
         proc.kill();
-        reject(new Error("cloudflared timed out — is it installed?"));
+        reject(new Error("bore timed out — is it installed? (cargo install bore-cli)"));
       }
     }, 30_000);
 
     function onData(chunk: Buffer) {
       const text = chunk.toString();
-      const match = text.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/);
+      // bore prints: "listening at bore.pub:<port>"
+      const match = text.match(/listening at bore\.pub:(\d+)/i);
       if (match && !settled) {
         settled = true;
         clearTimeout(timeout);
+        const port = match[1];
         resolve({
-          publicUrl: match[0],
+          publicUrl: `http://bore.pub:${port}`,
           close() {
             closing = true;
             proc.kill();
@@ -64,9 +54,8 @@ export function startTunnel(localPort: number, onDown?: () => void): Promise<Tun
       if (!settled) {
         settled = true;
         clearTimeout(timeout);
-        reject(new Error(`cloudflared exited with code ${code}`));
+        reject(new Error(`bore exited with code ${code}`));
       } else if (!closing) {
-        // Tunnel was up but died unexpectedly
         onDown?.();
       }
     });

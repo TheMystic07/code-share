@@ -36,6 +36,7 @@ interface SavedConnection {
 // ── Paths ────────────────────────────────────────────────────────────────────
 
 const CONNECTIONS_DIR = path.join(os.homedir(), ".claude-share", "connections");
+const ACCOUNT_BACKUP_FILE = path.join(os.homedir(), ".claude-share", "account-backup.json");
 
 function ensureConnectionsDir() {
   fs.mkdirSync(CONNECTIONS_DIR, { recursive: true });
@@ -353,6 +354,15 @@ function patchClaudeJson(sharerAccount: SharerAccount): Record<string, unknown> 
   try {
     const config = JSON.parse(fs.readFileSync(claudeJsonPath, "utf8")) as Record<string, unknown>;
     const original = config["oauthAccount"] ?? null;
+
+    // Persist backup so --cleanup can restore even if the process crashed
+    fs.mkdirSync(path.join(os.homedir(), ".claude-share"), { recursive: true });
+    fs.writeFileSync(
+      ACCOUNT_BACKUP_FILE,
+      JSON.stringify({ oauthAccount: original }, null, 2),
+      { mode: 0o600 },
+    );
+
     config["oauthAccount"] = {
       ...(typeof original === "object" && original !== null ? original : {}),
       emailAddress: sharerAccount.emailAddress,
@@ -376,7 +386,28 @@ function restoreClaudeJson(original: Record<string, unknown> | null): void {
       config["oauthAccount"] = original;
     }
     fs.writeFileSync(claudeJsonPath, JSON.stringify(config, null, 2), { mode: 0o600 });
+    try { fs.unlinkSync(ACCOUNT_BACKUP_FILE); } catch {}
   } catch {}
+}
+
+function cleanupFlow(): void {
+  if (!fs.existsSync(ACCOUNT_BACKUP_FILE)) {
+    console.log("Nothing to clean up — no account backup found.");
+    process.exit(0);
+  }
+
+  try {
+    const backup = JSON.parse(fs.readFileSync(ACCOUNT_BACKUP_FILE, "utf8")) as {
+      oauthAccount: Record<string, unknown> | null;
+    };
+    restoreClaudeJson(backup.oauthAccount);
+    console.log("Restored original oauthAccount in ~/.claude.json.");
+  } catch (err) {
+    console.error("Cleanup failed:", (err as Error).message);
+    process.exit(1);
+  }
+
+  process.exit(0);
 }
 
 async function launchClaude(
@@ -446,6 +477,7 @@ const args = process.argv.slice(2);
 const ownIdxs = new Set<number>();
 args.forEach((a, i) => {
   if (a === "--list" || a === "-l") ownIdxs.add(i);
+  if (a === "--cleanup") ownIdxs.add(i);
   if (a === "--reconnect" || a === "-r") {
     ownIdxs.add(i);
     // next arg is the optional UUID, not a claude flag
@@ -459,7 +491,9 @@ const claudeArgs = args.filter((_, i) => !ownIdxs.has(i));
 
 const shareArg = args.find((a) => a.startsWith("--share="));
 
-if (args[0] === "--list" || args[0] === "-l") {
+if (args[0] === "--cleanup") {
+  cleanupFlow();
+} else if (args[0] === "--list" || args[0] === "-l") {
   await listFlow();
 } else if (args[0] === "--reconnect" || args[0] === "-r") {
   await reconnectFlow(args[1], claudeArgs);

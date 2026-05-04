@@ -4,13 +4,14 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 
+import * as p from "@clack/prompts";
 import { serve } from "@hono/node-server";
 import { render } from "ink";
 import React from "react";
 
 import { createPortDetector } from "./port/detector.js";
 import { createMitmProxy } from "./proxy/mitm.js";
-import { initToken, stopTokenRefresh } from "./proxy/token.js";
+import { initToken, stopTokenRefresh, getAccessToken } from "./proxy/token.js";
 import { createApiApp } from "./server/index.js";
 import { createSession, destroySession, isSessionExpired, type SharerAccount } from "./session/manager.js";
 import { App } from "./tui/App.js";
@@ -43,26 +44,76 @@ function getLanIp(): string | null {
   return null;
 }
 
-const DURATIONS = {
-  session: 8 * 60 * 60 * 1000,
-  day: 24 * 60 * 60 * 1000,
-  week: 7 * 24 * 60 * 60 * 1000,
-};
+function nextMidnight(): Date {
+  const d = new Date();
+  d.setHours(24, 0, 0, 0);
+  return d;
+}
+
+function formatTime(d: Date): string {
+  return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+async function fetchResetTime(): Promise<Date | null> {
+  try {
+    const resp = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${getAccessToken()}`,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 1,
+        messages: [{ role: "user", content: "hi" }],
+      }),
+      signal: AbortSignal.timeout(8_000),
+    });
+    const raw =
+      resp.headers.get("anthropic-ratelimit-tokens-reset") ??
+      resp.headers.get("x-ratelimit-reset-tokens");
+    if (raw) {
+      const d = new Date(raw);
+      if (!isNaN(d.getTime()) && d > new Date()) return d;
+    }
+  } catch {}
+  return null;
+}
+
+async function promptDuration(): Promise<number> {
+  const spin = p.spinner();
+  spin.start("Checking usage reset time...");
+  const resetTime = (await fetchResetTime()) ?? nextMidnight();
+  spin.stop();
+
+  const resetMs = resetTime.getTime() - Date.now();
+  const resetLabel = formatTime(resetTime);
+
+  const choice = await p.select({
+    message: "How long do you want to share?",
+    options: [
+      { value: resetMs, label: `Till this session ends — ${resetLabel}` },
+      { value: 6 * 60 * 60 * 1000, label: "6 hours" },
+      { value: 24 * 60 * 60 * 1000, label: "24 hours" },
+      { value: 7 * 24 * 60 * 60 * 1000, label: "1 week" },
+    ],
+  });
+
+  if (p.isCancel(choice)) {
+    p.cancel("Cancelled.");
+    process.exit(0);
+  }
+
+  return choice as number;
+}
 
 async function main() {
-  console.log("Starting claude-share...");
+  p.intro("claude-share");
 
   await initToken();
-  console.log("Token loaded from keychain.");
 
-  const durationArg = process.argv[2];
-  const duration =
-    durationArg === "week"
-      ? DURATIONS.week
-      : durationArg === "session"
-        ? DURATIONS.session
-        : DURATIONS.day;
-
+  const duration = await promptDuration();
   const session = createSession(duration);
 
   const PORT = parseInt(process.env.PORT ?? "8080", 10);

@@ -1,5 +1,8 @@
 #!/usr/bin/env node
-import { spawn } from "node:child_process";
+import { spawn, execFile } from "node:child_process";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -309,44 +312,72 @@ function ensureOnboarding() {
   }
 }
 
+const PLACEHOLDER_CREDENTIALS = {
+  claudeAiOauth: {
+    accessToken: "claude-relay",
+    refreshToken: "",
+    expiresAt: 4102444800000,
+    scopes: [
+      "user:file_upload",
+      "user:inference",
+      "user:mcp_servers",
+      "user:profile",
+      "user:sessions:claude_code",
+    ],
+    subscriptionType: "pro",
+    rateLimitTier: "default_claude_ai",
+  },
+};
+
 async function ensureCredentials() {
-  if (process.platform !== "linux") return;
+  if (process.platform === "linux") {
+    const credPath = path.join(os.homedir(), ".claude", ".credentials.json");
+    if (fs.existsSync(credPath)) return;
 
-  const credPath = path.join(os.homedir(), ".claude", ".credentials.json");
-  if (fs.existsSync(credPath)) return;
+    p.log.warn("No ~/.claude/.credentials.json found. Claude needs this to think you're logged in.");
+    const confirm = await p.confirm({
+      message: "Create a placeholder credentials file so Claude launches without a login prompt?",
+      initialValue: true,
+    });
+    if (p.isCancel(confirm) || !confirm) {
+      p.log.warn("Skipping credentials setup. Claude may redirect you to login.");
+      return;
+    }
 
-  p.log.warn("No ~/.claude/.credentials.json found. Claude needs this to think you're logged in.");
+    fs.mkdirSync(path.join(os.homedir(), ".claude"), { recursive: true });
+    fs.writeFileSync(credPath, JSON.stringify(PLACEHOLDER_CREDENTIALS, null, 2), { mode: 0o600 });
+    p.log.success("Created ~/.claude/.credentials.json with placeholder credentials.");
 
-  const confirm = await p.confirm({
-    message: "Create a placeholder credentials file so Claude launches without a login prompt?",
-    initialValue: true,
-  });
-  if (p.isCancel(confirm) || !confirm) {
-    p.log.warn("Skipping credentials setup. Claude may redirect you to login.");
-    return;
+  } else if (process.platform === "darwin") {
+    const username = os.userInfo().username;
+    const service = "Claude Code-credentials";
+
+    // Check if an entry already exists
+    const exists = await execFileAsync("security", [
+      "find-generic-password", "-s", service, "-a", username,
+    ]).then(() => true).catch(() => false);
+
+    if (exists) return;
+
+    p.log.warn("No Claude credentials found in Keychain. Claude needs this to think you're logged in.");
+    const confirm = await p.confirm({
+      message: "Add a placeholder Keychain entry so Claude launches without a login prompt?",
+      initialValue: true,
+    });
+    if (p.isCancel(confirm) || !confirm) {
+      p.log.warn("Skipping credentials setup. Claude may redirect you to login.");
+      return;
+    }
+
+    await execFileAsync("security", [
+      "add-generic-password",
+      "-s", service,
+      "-a", username,
+      "-w", JSON.stringify(PLACEHOLDER_CREDENTIALS),
+      "-U",
+    ]);
+    p.log.success("Added placeholder credentials to Keychain.");
   }
-
-  const placeholder = {
-    claudeAiOauth: {
-      accessToken: "claude-relay",
-      refreshToken: "",
-      // Far-future expiry — the real token is injected by the proxy, this just needs to exist
-      expiresAt: 4102444800000,
-      scopes: [
-        "user:file_upload",
-        "user:inference",
-        "user:mcp_servers",
-        "user:profile",
-        "user:sessions:claude_code",
-      ],
-      subscriptionType: "pro",
-      rateLimitTier: "default_claude_ai",
-    },
-  };
-
-  fs.mkdirSync(path.join(os.homedir(), ".claude"), { recursive: true });
-  fs.writeFileSync(credPath, JSON.stringify(placeholder, null, 2), { mode: 0o600 });
-  p.log.success("Created ~/.claude/.credentials.json with placeholder credentials.");
 }
 
 function patchClaudeJson(sharerAccount: SharerAccount): Record<string, unknown> | null {

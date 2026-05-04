@@ -24,7 +24,7 @@ import {
   type Machine,
 } from "./session/manager.js";
 import { App } from "./tui/App.js";
-import { startTunnel } from "./tunnel/index.js";
+import { ensureBore, startTunnel } from "./tunnel/index.js";
 
 function readSharerAccount(): SharerAccount | null {
   try {
@@ -75,6 +75,12 @@ async function promptDuration(): Promise<number> {
 }
 
 async function main() {
+  // Check bore before any other clack prompts — p.confirm() tears down stdin
+  // in a way that ink can't recover from if it runs last.
+  const useTunnel =
+    process.env.TUNNEL !== "0" && process.env.TUNNEL !== "false";
+  const boreReady = useTunnel ? await ensureBore() : false;
+
   p.intro("claude-share");
 
   await initToken();
@@ -139,16 +145,15 @@ async function main() {
   let tunnel: Awaited<ReturnType<typeof startTunnel>>;
   let publicUrl: string | null = null;
   let tunnelDown = false;
+  let rerenderApp: ((node: React.ReactElement) => void) | null = null;
 
-  const useTunnel =
-    process.env.TUNNEL !== "0" && process.env.TUNNEL !== "false";
-
-  if (useTunnel) {
+  if (boreReady) {
     console.log("Starting bore tunnel...");
     try {
       tunnel = await startTunnel(PORT, () => {
         tunnelDown = true;
         logger.error("bore tunnel disconnected unexpectedly");
+        rerenderApp?.(makeAppElement());
       });
       publicUrl = tunnel.publicUrl;
       urls.public = publicUrl;
@@ -177,21 +182,24 @@ async function main() {
     destroySession();
   }
 
-  const { unmount } = render(
-    React.createElement(App, {
+  function makeAppElement(): React.ReactElement {
+    return React.createElement(App, {
       publicUrl,
       loopbackUrl,
       lanUrl,
       localPort: PORT,
       sharedUntil: session.sharedUntil,
       getSession: () => getSession(),
-      isTunnelDown: () => tunnelDown,
+      tunnelDown,
       onExit: () => {
         cleanup();
         process.exit(0);
       },
-    }),
-  );
+    });
+  }
+
+  const { unmount, rerender } = render(makeAppElement());
+  rerenderApp = rerender;
 
   process.on("SIGINT", () => {
     unmount();

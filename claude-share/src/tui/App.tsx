@@ -3,7 +3,11 @@ import { spawn } from "node:child_process";
 import { Box, Text, useInput, useApp } from "ink";
 import React, { useState, useEffect, useCallback } from "react";
 
-import { regeneratePairingCode, type Machine, type Session } from "../session/manager.js";
+import {
+  regeneratePairingCode,
+  type Machine,
+  type Session,
+} from "../session/manager.js";
 
 const IS_DEV = process.env.NODE_ENV === "development";
 
@@ -40,7 +44,7 @@ interface Props {
   localPort: number;
   sharedUntil: Date;
   getSession: () => Session | null;
-  isTunnelDown: () => boolean;
+  tunnelDown: boolean;
   onExit: () => void;
 }
 
@@ -52,16 +56,27 @@ function copyToClipboard(text: string): void {
   proc.stdin.end();
 }
 
-export function App({ publicUrl, lanUrl, loopbackUrl, localPort, sharedUntil, getSession, isTunnelDown, onExit }: Props) {
+export function App({
+  publicUrl,
+  lanUrl,
+  loopbackUrl,
+  localPort,
+  sharedUntil,
+  getSession,
+  tunnelDown,
+  onExit,
+}: Props) {
   const { exit } = useApp();
   const [view, setView] = useState<View>("pairing");
-  const [pairingCode, setPairingCode] = useState(() => getSession()?.pairingCode ?? "");
+  const [pairingCode, setPairingCode] = useState(
+    () => getSession()?.pairingCode ?? "",
+  );
   const [machines, setMachines] = useState<Machine[]>([]);
   const [cursorIdx, setCursorIdx] = useState(0);
-  const [selectedMachineId, setSelectedMachineId] = useState<string | null>(null);
-  const [, setTick] = useState(0);
+  const [selectedMachineId, setSelectedMachineId] = useState<string | null>(
+    null,
+  );
   const [copied, setCopied] = useState(false);
-  const [tunnelDown, setTunnelDown] = useState(false);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -69,8 +84,6 @@ export function App({ publicUrl, lanUrl, loopbackUrl, localPort, sharedUntil, ge
       if (!session) return;
       setPairingCode(session.pairingCode);
       setMachines([...session.machines.values()]);
-      setTick((t) => t + 1);
-      setTunnelDown(isTunnelDown());
       if (session.pairingCodeUsed) {
         setView((v) => (v === "pairing" ? "machines" : v));
       }
@@ -82,6 +95,11 @@ export function App({ publicUrl, lanUrl, loopbackUrl, localPort, sharedUntil, ge
     setCursorIdx((i) => Math.min(i, Math.max(0, machines.length - 1)));
   }, [machines.length]);
 
+  const connectUrl = useCallback(
+    (base: string) => `${base}/connect/${pairingCode}`,
+    [pairingCode],
+  );
+
   useInput((input, key) => {
     if (input === "q" || (key.ctrl && input === "c")) {
       onExit();
@@ -91,7 +109,8 @@ export function App({ publicUrl, lanUrl, loopbackUrl, localPort, sharedUntil, ge
 
     if (view === "machines") {
       if (key.upArrow) setCursorIdx((i) => Math.max(0, i - 1));
-      if (key.downArrow) setCursorIdx((i) => Math.min(machines.length - 1, i + 1));
+      if (key.downArrow)
+        setCursorIdx((i) => Math.min(machines.length - 1, i + 1));
       if (key.return && machines.length > 0) {
         setSelectedMachineId(machines[cursorIdx]?.id ?? null);
         setView("sessions");
@@ -119,32 +138,41 @@ export function App({ publicUrl, lanUrl, loopbackUrl, localPort, sharedUntil, ge
   });
 
   const selectedMachine = selectedMachineId
-    ? machines.find((m) => m.id === selectedMachineId) ?? null
+    ? (machines.find((m) => m.id === selectedMachineId) ?? null)
     : null;
-
-  const connectUrl = useCallback(
-    (base: string) => `${base}/connect/${pairingCode}`,
-    [pairingCode],
-  );
 
   return (
     <Box flexDirection="column" padding={1}>
-      {/* Header — always visible */}
+      {/* Header */}
       <Box gap={2} marginBottom={1}>
-        <Text bold color="cyan">claude-share</Text>
+        <Text bold color="cyan">
+          claude-share
+        </Text>
         <Text dimColor>{formatExpiry(sharedUntil)} remaining</Text>
         <Text dimColor>:{localPort}</Text>
-        {tunnelDown && <Text color="red">⚠ tunnel disconnected — receivers can't connect</Text>}
+        {tunnelDown && (
+          <Text color="red">
+            ⚠ tunnel disconnected — receivers can't connect
+          </Text>
+        )}
       </Box>
 
       {/* Pairing view */}
       {view === "pairing" && (
-        <Box flexDirection="column" borderStyle="round" borderColor="green" paddingX={2} paddingY={1}>
-          <Text bold color="green">Waiting for a machine to connect…</Text>
+        <Box
+          flexDirection="column"
+          borderStyle="round"
+          borderColor="green"
+          paddingX={2}
+          paddingY={1}
+        >
+          <Text bold color="green">
+            Waiting for a machine to connect…
+          </Text>
           <Box flexDirection="column" marginTop={1} gap={0}>
             {lanUrl && (
               <Box gap={1}>
-                <Text dimColor>LAN   </Text>
+                <Text dimColor>LAN </Text>
                 <Text bold>{connectUrl(lanUrl)}</Text>
               </Box>
             )}
@@ -156,7 +184,7 @@ export function App({ publicUrl, lanUrl, loopbackUrl, localPort, sharedUntil, ge
             ) : (
               <Box gap={1}>
                 <Text dimColor>Public</Text>
-                <Text color="yellow">tunnel starting…</Text>
+                <Text dimColor>not available — local network only</Text>
               </Box>
             )}
             <Box gap={1}>
@@ -164,14 +192,18 @@ export function App({ publicUrl, lanUrl, loopbackUrl, localPort, sharedUntil, ge
               <Text dimColor>{connectUrl(loopbackUrl)}</Text>
             </Box>
           </Box>
-          <Box marginTop={1}><Text dimColor>One-time code — only one machine can use it.</Text></Box>
+          <Box marginTop={1}>
+            <Text dimColor>One-time code — only one machine can use it.</Text>
+          </Box>
         </Box>
       )}
 
       {/* Machines list */}
       {view === "machines" && (
         <Box flexDirection="column">
-          <Box marginBottom={1}><Text bold>Machines ({machines.length})</Text></Box>
+          <Box marginBottom={1}>
+            <Text bold>Machines ({machines.length})</Text>
+          </Box>
           {machines.length === 0 ? (
             <Text dimColor>No machines yet.</Text>
           ) : (
@@ -181,7 +213,9 @@ export function App({ publicUrl, lanUrl, loopbackUrl, localPort, sharedUntil, ge
               const cursor = i === cursorIdx;
               return (
                 <Box key={m.id} gap={1}>
-                  <Text color={cursor ? "cyan" : undefined}>{cursor ? "›" : " "}</Text>
+                  <Text color={cursor ? "cyan" : undefined}>
+                    {cursor ? "›" : " "}
+                  </Text>
                   <Text color={active ? "green" : "yellow"}>●</Text>
                   <Text bold={cursor}>{m.name}</Text>
                   <Text dimColor>— {formatRelative(last)}</Text>
@@ -195,12 +229,16 @@ export function App({ publicUrl, lanUrl, loopbackUrl, localPort, sharedUntil, ge
       {/* Sessions detail */}
       {view === "sessions" && selectedMachine && (
         <Box flexDirection="column">
-          <Box marginBottom={1}><Text bold>{selectedMachine.name} — Sessions</Text></Box>
+          <Box marginBottom={1}>
+            <Text bold>{selectedMachine.name} — Sessions</Text>
+          </Box>
           {selectedMachine.sessions.size === 0 ? (
             <Text dimColor>No sessions yet.</Text>
           ) : (
             [...selectedMachine.sessions.values()]
-              .sort((a, b) => b.lastActiveAt.getTime() - a.lastActiveAt.getTime())
+              .sort(
+                (a, b) => b.lastActiveAt.getTime() - a.lastActiveAt.getTime(),
+              )
               .map((s) => (
                 <Box key={s.id} gap={2}>
                   <Text color={s.active ? "green" : "gray"}>●</Text>
@@ -221,12 +259,15 @@ export function App({ publicUrl, lanUrl, loopbackUrl, localPort, sharedUntil, ge
       {/* Footer */}
       <Box marginTop={1} gap={2}>
         <Text dimColor>q quit</Text>
-        {view === "pairing" && (
-          copied
-            ? <Text color="green">✓ copied!</Text>
-            : <Text dimColor>c copy url</Text>
+        {view === "pairing" &&
+          (copied ? (
+            <Text color="green">✓ copied!</Text>
+          ) : (
+            <Text dimColor>c copy url</Text>
+          ))}
+        {view === "machines" && (
+          <Text dimColor>↑↓ select · enter view sessions · n new pairing</Text>
         )}
-        {view === "machines" && <Text dimColor>↑↓ select · enter view sessions · n new pairing</Text>}
         {view === "sessions" && <Text dimColor>esc back · n new pairing</Text>}
       </Box>
     </Box>

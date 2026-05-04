@@ -40,7 +40,11 @@ async function readFromKeychain(): Promise<OAuthCredentials> {
 function scheduleKeychainReread(creds: OAuthCredentials): void {
   if (refreshTimer) clearTimeout(refreshTimer);
   // Re-read 5 minutes before the token expires so we're never caught with a stale token
-  const msUntilReread = Math.max(creds.expiresAt - Date.now() - 5 * 60 * 1000, 60_000);
+  // todo: Verify is reading again gets ous the latest token or claude only refreshes token when claude cli is launched
+  const msUntilReread = Math.max(
+    creds.expiresAt - Date.now() - 5 * 60 * 1000,
+    60_000,
+  );
   refreshTimer = setTimeout(async () => {
     try {
       cached = await readFromKeychain();
@@ -60,7 +64,8 @@ export async function initToken(): Promise<void> {
 }
 
 export function getAccessToken(): string {
-  if (!cached) throw new Error("Token not initialized — call initToken() first");
+  if (!cached)
+    throw new Error("Token not initialized — call initToken() first");
   return cached.accessToken;
 }
 

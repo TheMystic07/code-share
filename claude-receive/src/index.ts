@@ -67,7 +67,9 @@ function readConfig(): ReceiverConfig | null {
 
 function writeConfig(config: ReceiverConfig): void {
   fs.mkdirSync(CLAUDE_SHARE_DIR, { recursive: true });
-  fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), { mode: 0o600 });
+  fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), {
+    mode: 0o600,
+  });
 }
 
 async function getDeviceName(): Promise<string> {
@@ -77,7 +79,10 @@ async function getDeviceName(): Promise<string> {
   let name: string;
   try {
     if (process.platform === "darwin") {
-      const { stdout } = await execFileAsync("scutil", ["--get", "ComputerName"]);
+      const { stdout } = await execFileAsync("scutil", [
+        "--get",
+        "ComputerName",
+      ]);
       name = stdout.trim();
     } else {
       const { stdout } = await execFileAsync("hostname");
@@ -115,17 +120,23 @@ function loadConnections(): SavedConnection[] {
 function pruneExpiredConnections(): void {
   ensureConnectionsDir();
   const now = Date.now();
-  for (const file of fs.readdirSync(CONNECTIONS_DIR).filter((f) => f.endsWith(".json"))) {
+  for (const file of fs
+    .readdirSync(CONNECTIONS_DIR)
+    .filter((f) => f.endsWith(".json"))) {
     const filePath = path.join(CONNECTIONS_DIR, file);
     try {
-      const c = JSON.parse(fs.readFileSync(filePath, "utf8")) as Partial<SavedConnection>;
+      const c = JSON.parse(
+        fs.readFileSync(filePath, "utf8"),
+      ) as Partial<SavedConnection>;
       // Remove if sharedUntil is present and in the past; leave legacy entries without it alone
       if (c.sharedUntil && new Date(c.sharedUntil).getTime() < now) {
         fs.unlinkSync(filePath);
       }
     } catch {
       // Corrupt file — remove it too
-      try { fs.unlinkSync(filePath); } catch {}
+      try {
+        fs.unlinkSync(filePath);
+      } catch {}
     }
   }
 }
@@ -134,12 +145,15 @@ function findConnectionByServerUrl(serverUrl: string): SavedConnection | null {
   const all = loadConnections().filter((c) => c.serverUrl === serverUrl);
   if (all.length === 0) return null;
   // Most recently saved wins
-  return all.sort((a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime())[0];
+  return all.sort(
+    (a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime(),
+  )[0];
 }
 
 // ── Base58 decode ────────────────────────────────────────────────────────────
 
-const BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+const BASE58_ALPHABET =
+  "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
 function fromBase58(str: string): Uint8Array {
   let num = 0n;
@@ -174,7 +188,9 @@ function decryptBlob(blob: string, pairingCode: string): ConnectionFile {
 // Format: http://host:port/connect/<pairingCode>
 // The server does not need to handle this path — it's parsed client-side only.
 
-function parseConnectUrl(url: string): { serverUrl: string; pairingCode: string } | null {
+function parseConnectUrl(
+  url: string,
+): { serverUrl: string; pairingCode: string } | null {
   const match = url.match(/^(https?:\/\/.+?)\/connect\/([A-Za-z0-9]+)$/);
   if (!match) return null;
   return { serverUrl: match[1], pairingCode: match[2] };
@@ -192,7 +208,11 @@ async function checkHealth(serverUrl: string): Promise<HealthResult> {
     const res = await fetch(`${serverUrl}/health`, {
       signal: AbortSignal.timeout(5000),
     });
-    const body = (await res.json()) as { ok: boolean; sessionActive: boolean; sessionId?: string };
+    const body = (await res.json()) as {
+      ok: boolean;
+      sessionActive: boolean;
+      sessionId?: string;
+    };
     return {
       alive: body.ok && body.sessionActive,
       sessionId: body.sessionId ?? null,
@@ -304,9 +324,18 @@ async function pairFlow(
     savedAt: new Date().toISOString(),
     sharerAccount: file.sharerAccount ?? null,
   };
-  fs.writeFileSync(connectionPath(connectionId), JSON.stringify(saved, null, 2));
+  fs.writeFileSync(
+    connectionPath(connectionId),
+    JSON.stringify(saved, null, 2),
+  );
 
-  await launchClaude(serverUrl, file.caPem, saved, claudeArgs, file.sharerAccount ?? null);
+  await launchClaude(
+    serverUrl,
+    file.caPem,
+    saved,
+    claudeArgs,
+    file.sharerAccount ?? null,
+  );
 }
 
 // ── Reconnect flow ────────────────────────────────────────────────────────────
@@ -354,7 +383,13 @@ async function reconnectFlow(uuid?: string, claudeArgs: string[] = []) {
   }
   spin.stop("Server is alive.");
 
-  await launchClaude(chosen.serverUrl, chosen.caPem, chosen, claudeArgs, chosen.sharerAccount ?? null);
+  await launchClaude(
+    chosen.serverUrl,
+    chosen.caPem,
+    chosen,
+    claudeArgs,
+    chosen.sharerAccount ?? null,
+  );
 }
 
 // ── List flow ────────────────────────────────────────────────────────────────
@@ -369,7 +404,9 @@ async function listFlow() {
   console.log("\nSaved connections:\n");
   for (const c of connections) {
     const { alive } = await checkHealth(c.serverUrl);
-    const status = alive ? "\x1b[32m● online\x1b[0m" : "\x1b[90m○ offline\x1b[0m";
+    const status = alive
+      ? "\x1b[32m● online\x1b[0m"
+      : "\x1b[90m○ offline\x1b[0m";
     console.log(`  ${status}  ${c.name}  ${c.serverUrl}`);
     console.log(`           id: ${c.id}`);
     console.log(`           saved: ${new Date(c.savedAt).toLocaleString()}\n`);
@@ -386,9 +423,13 @@ function ensureOnboarding() {
   } catch {}
 
   if (config["hasCompletedOnboarding"] !== true) {
-    p.log.info("Onboarding not completed — marking it done so Claude launches directly.");
+    p.log.info(
+      "Onboarding not completed — marking it done so Claude launches directly.",
+    );
     config["hasCompletedOnboarding"] = true;
-    fs.writeFileSync(claudeJsonPath, JSON.stringify(config, null, 2), { mode: 0o600 });
+    fs.writeFileSync(claudeJsonPath, JSON.stringify(config, null, 2), {
+      mode: 0o600,
+    });
   }
 }
 
@@ -414,56 +455,84 @@ async function ensureCredentials() {
     const credPath = path.join(os.homedir(), ".claude", ".credentials.json");
     if (fs.existsSync(credPath)) return;
 
-    p.log.warn("No ~/.claude/.credentials.json found. Claude needs this to think you're logged in.");
+    p.log.warn(
+      "No ~/.claude/.credentials.json found. Claude needs this to think you're logged in.",
+    );
     const confirm = await p.confirm({
-      message: "Create a placeholder credentials file so Claude launches without a login prompt?",
+      message:
+        "Create a placeholder credentials file so Claude launches without a login prompt?",
       initialValue: true,
     });
     if (p.isCancel(confirm) || !confirm) {
-      p.log.warn("Skipping credentials setup. Claude may redirect you to login.");
+      p.log.warn(
+        "Skipping credentials setup. Claude may redirect you to login.",
+      );
       return;
     }
 
     fs.mkdirSync(path.join(os.homedir(), ".claude"), { recursive: true });
-    fs.writeFileSync(credPath, JSON.stringify(PLACEHOLDER_CREDENTIALS, null, 2), { mode: 0o600 });
-    p.log.success("Created ~/.claude/.credentials.json with placeholder credentials.");
-
+    fs.writeFileSync(
+      credPath,
+      JSON.stringify(PLACEHOLDER_CREDENTIALS, null, 2),
+      { mode: 0o600 },
+    );
+    p.log.success(
+      "Created ~/.claude/.credentials.json with placeholder credentials.",
+    );
   } else if (process.platform === "darwin") {
     const username = os.userInfo().username;
     const service = "Claude Code-credentials";
 
     // Check if an entry already exists
     const exists = await execFileAsync("security", [
-      "find-generic-password", "-s", service, "-a", username,
-    ]).then(() => true).catch(() => false);
+      "find-generic-password",
+      "-s",
+      service,
+      "-a",
+      username,
+    ])
+      .then(() => true)
+      .catch(() => false);
 
     if (exists) return;
 
-    p.log.warn("No Claude credentials found in Keychain. Claude needs this to think you're logged in.");
+    p.log.warn(
+      "No Claude credentials found in Keychain. Claude needs this to think you're logged in.",
+    );
     const confirm = await p.confirm({
-      message: "Add a placeholder Keychain entry so Claude launches without a login prompt?",
+      message:
+        "Add a placeholder Keychain entry so Claude launches without a login prompt?",
       initialValue: true,
     });
     if (p.isCancel(confirm) || !confirm) {
-      p.log.warn("Skipping credentials setup. Claude may redirect you to login.");
+      p.log.warn(
+        "Skipping credentials setup. Claude may redirect you to login.",
+      );
       return;
     }
 
     await execFileAsync("security", [
       "add-generic-password",
-      "-s", service,
-      "-a", username,
-      "-w", JSON.stringify(PLACEHOLDER_CREDENTIALS),
+      "-s",
+      service,
+      "-a",
+      username,
+      "-w",
+      JSON.stringify(PLACEHOLDER_CREDENTIALS),
       "-U",
     ]);
     p.log.success("Added placeholder credentials to Keychain.");
   }
 }
 
-function patchClaudeJson(sharerAccount: SharerAccount): Record<string, unknown> | null {
+function patchClaudeJson(
+  sharerAccount: SharerAccount,
+): Record<string, unknown> | null {
   const claudeJsonPath = path.join(os.homedir(), ".claude.json");
   try {
-    const config = JSON.parse(fs.readFileSync(claudeJsonPath, "utf8")) as Record<string, unknown>;
+    const config = JSON.parse(
+      fs.readFileSync(claudeJsonPath, "utf8"),
+    ) as Record<string, unknown>;
     const original = config["oauthAccount"] ?? null;
 
     // Persist backup so --cleanup can restore even if the process crashed
@@ -480,7 +549,9 @@ function patchClaudeJson(sharerAccount: SharerAccount): Record<string, unknown> 
       displayName: sharerAccount.displayName,
       organizationName: sharerAccount.organizationName,
     };
-    fs.writeFileSync(claudeJsonPath, JSON.stringify(config, null, 2), { mode: 0o600 });
+    fs.writeFileSync(claudeJsonPath, JSON.stringify(config, null, 2), {
+      mode: 0o600,
+    });
     return original as Record<string, unknown> | null;
   } catch {
     return null;
@@ -490,14 +561,20 @@ function patchClaudeJson(sharerAccount: SharerAccount): Record<string, unknown> 
 function restoreClaudeJson(original: Record<string, unknown> | null): void {
   const claudeJsonPath = path.join(os.homedir(), ".claude.json");
   try {
-    const config = JSON.parse(fs.readFileSync(claudeJsonPath, "utf8")) as Record<string, unknown>;
+    const config = JSON.parse(
+      fs.readFileSync(claudeJsonPath, "utf8"),
+    ) as Record<string, unknown>;
     if (original === null) {
       delete config["oauthAccount"];
     } else {
       config["oauthAccount"] = original;
     }
-    fs.writeFileSync(claudeJsonPath, JSON.stringify(config, null, 2), { mode: 0o600 });
-    try { fs.unlinkSync(ACCOUNT_BACKUP_FILE); } catch {}
+    fs.writeFileSync(claudeJsonPath, JSON.stringify(config, null, 2), {
+      mode: 0o600,
+    });
+    try {
+      fs.unlinkSync(ACCOUNT_BACKUP_FILE);
+    } catch {}
   } catch {}
 }
 
@@ -523,7 +600,9 @@ function cleanupFlow(): void {
 
 async function checkClaudeInstalled(): Promise<boolean> {
   const which = process.platform === "win32" ? "where" : "which";
-  return execFileAsync(which, ["claude"]).then(() => true).catch(() => false);
+  return execFileAsync(which, ["claude"])
+    .then(() => true)
+    .catch(() => false);
 }
 
 async function sessionPost(
@@ -558,7 +637,9 @@ async function launchClaude(
 
   const originalAccount = sharerAccount ? patchClaudeJson(sharerAccount) : null;
   if (sharerAccount) {
-    p.log.info(`Connecting as ${sharerAccount.displayName} (${sharerAccount.emailAddress})`);
+    p.log.info(
+      `Connecting as ${sharerAccount.displayName} (${sharerAccount.emailAddress})`,
+    );
   }
 
   const tmpCert = path.join(os.tmpdir(), `claude-share-ca-${Date.now()}.pem`);
@@ -567,9 +648,14 @@ async function launchClaude(
   // Register this Claude session with the sharer
   let sessionId: string | null = null;
   try {
-    const res = await sessionPost(meta.serverUrl, "/session/start", { machineId: meta.id });
+    const res = await sessionPost(meta.serverUrl, "/session/start", {
+      machineId: meta.id,
+    });
     sessionId = (res["sessionId"] as string) ?? null;
-    if (!sessionId) logger.warn("session/start returned no sessionId", { machineId: meta.id });
+    if (!sessionId)
+      logger.warn("session/start returned no sessionId", {
+        machineId: meta.id,
+      });
   } catch (err) {
     logger.error("session/start failed", err);
   }
@@ -584,7 +670,9 @@ async function launchClaude(
       }, 30_000)
     : null;
 
-  p.log.success(`Launching Claude as ${meta.name}. All API calls proxied through sharer.`);
+  p.log.success(
+    `Launching Claude as ${meta.name}. All API calls proxied through sharer.`,
+  );
   p.log.info(`Proxy: ${proxyUrl}`);
   if (claudeArgs.length > 0) p.log.info(`Extra args: ${claudeArgs.join(" ")}`);
   p.log.info("Press Ctrl+C to exit and disconnect.");
@@ -599,6 +687,8 @@ async function launchClaude(
       HTTPS_PROXY: proxyUrl,
       HTTP_PROXY: proxyUrl,
       NODE_EXTRA_CA_CERTS: tmpCert,
+      SSL_CERT_FILE: tmpCert,
+      CURL_CA_BUNDLE: tmpCert,
     },
   });
 
@@ -610,7 +700,9 @@ async function launchClaude(
         sessionId,
       }).catch(() => {});
     }
-    try { fs.unlinkSync(tmpCert); } catch {}
+    try {
+      fs.unlinkSync(tmpCert);
+    } catch {}
     if (sharerAccount) restoreClaudeJson(originalAccount);
     const duration = Math.floor((Date.now() - startTime) / 1000);
     const mins = Math.floor(duration / 60);
@@ -619,16 +711,25 @@ async function launchClaude(
     process.exit(code ?? 0);
   }
 
-  child.on("exit", (code) => { void cleanupAndExit(code); });
+  child.on("exit", (code) => {
+    void cleanupAndExit(code);
+  });
   child.on("error", (err) => {
     console.error("\nFailed to launch claude:", err.message);
     logger.error("Failed to launch claude process", err);
-    console.error("Is 'claude' installed? Run: npm install -g @anthropic-ai/claude-code");
+    console.error(
+      "Is 'claude' installed? Run: npm install -g @anthropic-ai/claude-code",
+    );
     if (heartbeat) clearInterval(heartbeat);
     if (sessionId) {
-      void sessionPost(meta.serverUrl, "/session/end", { machineId: meta.id, sessionId }).catch(() => {});
+      void sessionPost(meta.serverUrl, "/session/end", {
+        machineId: meta.id,
+        sessionId,
+      }).catch(() => {});
     }
-    try { fs.unlinkSync(tmpCert); } catch {}
+    try {
+      fs.unlinkSync(tmpCert);
+    } catch {}
     if (sharerAccount) restoreClaudeJson(originalAccount);
     process.exit(1);
   });
@@ -661,18 +762,17 @@ if (args[0] !== "--cleanup") pruneExpiredConnections();
 
 if (args[0] === "--cleanup") {
   cleanupFlow();
-
 } else if (args[0] === "--list" || args[0] === "-l") {
   await listFlow();
-
 } else if (args[0] === "--reconnect" || args[0] === "-r") {
   await reconnectFlow(args[1], claudeArgs);
-
 } else if (shareArg) {
   const connectUrl = shareArg.slice("--share=".length).trim();
   const parsed = parseConnectUrl(connectUrl);
   if (!parsed) {
-    console.error("Invalid --share URL. Expected: http://host:port/connect/PAIRINGCODE");
+    console.error(
+      "Invalid --share URL. Expected: http://host:port/connect/PAIRINGCODE",
+    );
     process.exit(1);
   }
 
@@ -684,9 +784,17 @@ if (args[0] === "--cleanup") {
       // Same session still running — skip pairing entirely
       p.intro("claude-receive");
       p.log.info(`Resuming existing connection for ${existing.name}`);
-      await launchClaude(existing.serverUrl, existing.caPem, existing, claudeArgs, existing.sharerAccount ?? null);
+      await launchClaude(
+        existing.serverUrl,
+        existing.caPem,
+        existing,
+        claudeArgs,
+        existing.sharerAccount ?? null,
+      );
     } else if (!health.alive) {
-      p.log.error("Sharer is offline or the session has expired. Ask the sharer for a new connect URL.");
+      p.log.error(
+        "Sharer is offline or the session has expired. Ask the sharer for a new connect URL.",
+      );
       process.exit(1);
     } else {
       // Sharer restarted (new sessionId) — must pair fresh
@@ -695,7 +803,6 @@ if (args[0] === "--cleanup") {
   } else {
     await pairFlow(parsed, claudeArgs);
   }
-
 } else {
   // No --share flag: check for active saved connections first
   const saved = loadConnections();
@@ -706,7 +813,10 @@ if (args[0] === "--cleanup") {
     const results = await Promise.all(
       saved.map(async (c) => {
         const health = await checkHealth(c.serverUrl);
-        return { conn: c, alive: health.alive && health.sessionId === c.sessionId };
+        return {
+          conn: c,
+          alive: health.alive && health.sessionId === c.sessionId,
+        };
       }),
     );
     spin.stop();
@@ -723,7 +833,11 @@ if (args[0] === "--cleanup") {
             label: c.name,
             hint: c.serverUrl,
           })),
-          { value: "__new__", label: "Pair with a new sharer…", hint: "enter a connect URL" },
+          {
+            value: "__new__",
+            label: "Pair with a new sharer…",
+            hint: "enter a connect URL",
+          },
         ],
       });
       if (p.isCancel(pick)) {
@@ -734,7 +848,13 @@ if (args[0] === "--cleanup") {
         await pairFlow(undefined, claudeArgs);
       } else {
         const chosen = active.find((c) => c.id === pick)!;
-        await launchClaude(chosen.serverUrl, chosen.caPem, chosen, claudeArgs, chosen.sharerAccount ?? null);
+        await launchClaude(
+          chosen.serverUrl,
+          chosen.caPem,
+          chosen,
+          claudeArgs,
+          chosen.sharerAccount ?? null,
+        );
       }
     } else {
       await pairFlow(undefined, claudeArgs);

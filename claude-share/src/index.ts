@@ -115,7 +115,17 @@ async function main() {
   const duration = await promptDuration();
   const session = createSession(duration);
 
-  const PORT = parseInt(process.env.PORT ?? "8080", 10);
+  const DEFAULT_PORT = 47821;
+  const argv = process.argv.slice(2);
+  const portIdx = argv.findIndex((a) => a === "--port" || a === "-p");
+  const portEq = argv.find((a) => a.startsWith("--port=") || a.startsWith("-p="));
+  const portFlag =
+    portEq != null ? parseInt(portEq.split("=")[1], 10)
+    : portIdx !== -1 ? parseInt(argv[portIdx + 1], 10)
+    : null;
+  const PORT = (portFlag != null && !isNaN(portFlag))
+    ? portFlag
+    : parseInt(process.env.PORT ?? String(DEFAULT_PORT), 10);
   // Internal port for the Hono API server — not exposed externally
   const API_PORT = PORT + 1;
 

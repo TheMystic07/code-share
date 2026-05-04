@@ -50,6 +50,7 @@ export interface ConnectionFile {
   publicServerUrl: string | null;
   lanServerUrl: string | null;
   sessionId: string;
+  sharedUntil: string; // ISO-8601
   caPem: string;
   sharerAccount: SharerAccount | null;
 }

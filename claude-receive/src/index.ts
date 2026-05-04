@@ -22,6 +22,7 @@ interface ConnectionFile {
   publicServerUrl: string | null;
   lanServerUrl: string | null;
   sessionId: string;
+  sharedUntil: string; // ISO-8601
   caPem: string;
   sharerAccount: SharerAccount | null;
 }
@@ -31,6 +32,7 @@ interface SavedConnection {
   name: string;
   serverUrl: string;
   sessionId: string;
+  sharedUntil: string; // ISO-8601 — used to prune expired connections on startup
   caPem: string;
   savedAt: string;
   sharerAccount: SharerAccount | null;
@@ -106,6 +108,24 @@ function loadConnections(): SavedConnection[] {
       }
     })
     .filter(Boolean) as SavedConnection[];
+}
+
+function pruneExpiredConnections(): void {
+  ensureConnectionsDir();
+  const now = Date.now();
+  for (const file of fs.readdirSync(CONNECTIONS_DIR).filter((f) => f.endsWith(".json"))) {
+    const filePath = path.join(CONNECTIONS_DIR, file);
+    try {
+      const c = JSON.parse(fs.readFileSync(filePath, "utf8")) as Partial<SavedConnection>;
+      // Remove if sharedUntil is present and in the past; leave legacy entries without it alone
+      if (c.sharedUntil && new Date(c.sharedUntil).getTime() < now) {
+        fs.unlinkSync(filePath);
+      }
+    } catch {
+      // Corrupt file — remove it too
+      try { fs.unlinkSync(filePath); } catch {}
+    }
+  }
 }
 
 function findConnectionByServerUrl(serverUrl: string): SavedConnection | null {
@@ -271,6 +291,7 @@ async function pairFlow(
     name: name as string,
     serverUrl,
     sessionId: file.sessionId,
+    sharedUntil: file.sharedUntil,
     caPem: file.caPem,
     savedAt: new Date().toISOString(),
     sharerAccount: file.sharerAccount ?? null,
@@ -622,6 +643,9 @@ args.forEach((a, i) => {
 
 const claudeArgs = args.filter((_, i) => !ownIdxs.has(i));
 const shareArg = args.find((a) => a.startsWith("--share="));
+
+// Silently remove connections whose sharing window has elapsed
+if (args[0] !== "--cleanup") pruneExpiredConnections();
 
 if (args[0] === "--cleanup") {
   cleanupFlow();

@@ -48,6 +48,7 @@ export function createApiApp(urls: Urls, caPem: string, sharerAccount: SharerAcc
       publicServerUrl: urls.public,
       lanServerUrl: urls.lan,
       sessionId: session.id,
+      sharedUntil: session.sharedUntil.toISOString(),
       caPem,
       sharerAccount,
     };

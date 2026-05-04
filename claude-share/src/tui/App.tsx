@@ -108,7 +108,7 @@ export function App({ publicUrl, lanUrl, loopbackUrl, localPort, sharedUntil, ge
     }
 
     if (input === "c" && view === "pairing") {
-      const best = lanUrl ?? publicUrl ?? loopbackUrl;
+      const best = publicUrl ?? lanUrl ?? loopbackUrl;
       copyToClipboard(connectUrl(best));
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);

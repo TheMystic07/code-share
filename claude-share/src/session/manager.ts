@@ -35,11 +35,18 @@ export interface Connection {
   status: SessionStatus;
 }
 
+export interface SharerAccount {
+  emailAddress: string;
+  displayName: string;
+  organizationName: string;
+}
+
 export interface ConnectionFile {
   publicServerUrl: string | null;
   lanServerUrl: string | null;
   sessionId: string;
   caPem: string;
+  sharerAccount: SharerAccount | null;
 }
 
 export interface Session {

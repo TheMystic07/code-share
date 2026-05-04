@@ -1,6 +1,8 @@
 #!/usr/bin/env node
+import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
+import path from "node:path";
 
 import { serve } from "@hono/node-server";
 import { render } from "ink";
@@ -10,9 +12,25 @@ import { createPortDetector } from "./port/detector.js";
 import { createMitmProxy } from "./proxy/mitm.js";
 import { initToken, stopTokenRefresh } from "./proxy/token.js";
 import { createApiApp } from "./server/index.js";
-import { createSession, destroySession, isSessionExpired } from "./session/manager.js";
+import { createSession, destroySession, isSessionExpired, type SharerAccount } from "./session/manager.js";
 import { App } from "./tui/App.js";
 import { startTunnel } from "./tunnel/index.js";
+
+function readSharerAccount(): SharerAccount | null {
+  try {
+    const raw = fs.readFileSync(path.join(os.homedir(), ".claude.json"), "utf8");
+    const config = JSON.parse(raw) as Record<string, unknown>;
+    const acct = config["oauthAccount"] as Record<string, string> | undefined;
+    if (!acct) return null;
+    return {
+      emailAddress: acct["emailAddress"] ?? "",
+      displayName: acct["displayName"] ?? "",
+      organizationName: acct["organizationName"] ?? "",
+    };
+  } catch {
+    return null;
+  }
+}
 
 function getLanIp(): string | null {
   for (const ifaces of Object.values(os.networkInterfaces())) {
@@ -61,9 +79,10 @@ async function main() {
 
   // Mutable — publicUrl is filled in after the tunnel starts
   const urls = { public: null as string | null, lan: lanUrl };
+  const sharerAccount = readSharerAccount();
 
   // Hono API on a localhost-only port; port detector pipes plain HTTP to it
-  const apiApp = createApiApp(urls, mitmProxy.caCertPem);
+  const apiApp = createApiApp(urls, mitmProxy.caCertPem, sharerAccount);
   const honoServer = serve({
     fetch: apiApp.fetch,
     port: API_PORT,

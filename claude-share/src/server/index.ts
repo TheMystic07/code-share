@@ -8,6 +8,7 @@ import {
   encryptConnectionFile,
   isSessionExpired,
   type ConnectionFile,
+  type SharerAccount,
 } from "../session/manager.js";
 
 interface Urls {
@@ -15,7 +16,7 @@ interface Urls {
   lan: string | null;
 }
 
-export function createApiApp(urls: Urls, caPem: string): Hono {
+export function createApiApp(urls: Urls, caPem: string, sharerAccount: SharerAccount | null): Hono {
   const app = new Hono();
 
   app.get("/health", (c) => {
@@ -53,6 +54,7 @@ export function createApiApp(urls: Urls, caPem: string): Hono {
       lanServerUrl: urls.lan,
       sessionId: session.id,
       caPem,
+      sharerAccount,
     };
 
     const blob = encryptConnectionFile(session, file);

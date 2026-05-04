@@ -9,11 +9,18 @@ import { xchacha20poly1305 } from "@noble/ciphers/chacha.js";
 
 // ── Types shared with claude-share ──────────────────────────────────────────
 
+interface SharerAccount {
+  emailAddress: string;
+  displayName: string;
+  organizationName: string;
+}
+
 interface ConnectionFile {
   publicServerUrl: string | null;
   lanServerUrl: string | null;
   sessionId: string;
   caPem: string;
+  sharerAccount: SharerAccount | null;
 }
 
 interface SavedConnection {
@@ -23,6 +30,7 @@ interface SavedConnection {
   sessionId: string;
   caPem: string;
   savedAt: string;
+  sharerAccount: SharerAccount | null;
 }
 
 // ── Paths ────────────────────────────────────────────────────────────────────
@@ -210,10 +218,11 @@ async function pairFlow(
     sessionId: file.sessionId,
     caPem: file.caPem,
     savedAt: new Date().toISOString(),
+    sharerAccount: file.sharerAccount ?? null,
   };
   fs.writeFileSync(connectionPath(connectionId), JSON.stringify(saved, null, 2));
 
-  await launchClaude(serverUrl, file.caPem, saved, claudeArgs);
+  await launchClaude(serverUrl, file.caPem, saved, claudeArgs, file.sharerAccount ?? null);
 }
 
 // ── Reconnect flow ────────────────────────────────────────────────────────────
@@ -261,7 +270,7 @@ async function reconnectFlow(uuid?: string, claudeArgs: string[] = []) {
   }
   spin.stop("Server is alive.");
 
-  await launchClaude(chosen.serverUrl, chosen.caPem, chosen, claudeArgs);
+  await launchClaude(chosen.serverUrl, chosen.caPem, chosen, claudeArgs, chosen.sharerAccount ?? null);
 }
 
 // ── List flow ────────────────────────────────────────────────────────────────
@@ -339,14 +348,51 @@ async function ensureCredentials() {
   p.log.success("Created ~/.claude/.credentials.json with placeholder credentials.");
 }
 
+function patchClaudeJson(sharerAccount: SharerAccount): Record<string, unknown> | null {
+  const claudeJsonPath = path.join(os.homedir(), ".claude.json");
+  try {
+    const config = JSON.parse(fs.readFileSync(claudeJsonPath, "utf8")) as Record<string, unknown>;
+    const original = config["oauthAccount"] ?? null;
+    config["oauthAccount"] = {
+      ...(typeof original === "object" && original !== null ? original : {}),
+      emailAddress: sharerAccount.emailAddress,
+      displayName: sharerAccount.displayName,
+      organizationName: sharerAccount.organizationName,
+    };
+    fs.writeFileSync(claudeJsonPath, JSON.stringify(config, null, 2), { mode: 0o600 });
+    return original as Record<string, unknown> | null;
+  } catch {
+    return null;
+  }
+}
+
+function restoreClaudeJson(original: Record<string, unknown> | null): void {
+  const claudeJsonPath = path.join(os.homedir(), ".claude.json");
+  try {
+    const config = JSON.parse(fs.readFileSync(claudeJsonPath, "utf8")) as Record<string, unknown>;
+    if (original === null) {
+      delete config["oauthAccount"];
+    } else {
+      config["oauthAccount"] = original;
+    }
+    fs.writeFileSync(claudeJsonPath, JSON.stringify(config, null, 2), { mode: 0o600 });
+  } catch {}
+}
+
 async function launchClaude(
   proxyUrl: string,
   caPem: string,
   meta: { name: string },
   claudeArgs: string[] = [],
+  sharerAccount: SharerAccount | null = null,
 ) {
   ensureOnboarding();
   await ensureCredentials();
+
+  const originalAccount = sharerAccount ? patchClaudeJson(sharerAccount) : null;
+  if (sharerAccount) {
+    p.log.info(`Connecting as ${sharerAccount.displayName} (${sharerAccount.emailAddress})`);
+  }
 
   const tmpCert = path.join(os.tmpdir(), `claude-share-ca-${Date.now()}.pem`);
   fs.writeFileSync(tmpCert, caPem, { mode: 0o600 });
@@ -370,9 +416,8 @@ async function launchClaude(
   });
 
   function cleanupAndExit(code: number | null) {
-    try {
-      fs.unlinkSync(tmpCert);
-    } catch {}
+    try { fs.unlinkSync(tmpCert); } catch {}
+    if (sharerAccount) restoreClaudeJson(originalAccount);
     const duration = Math.floor((Date.now() - startTime) / 1000);
     const mins = Math.floor(duration / 60);
     const secs = duration % 60;
@@ -384,9 +429,8 @@ async function launchClaude(
   child.on("error", (err) => {
     console.error("\nFailed to launch claude:", err.message);
     console.error("Is 'claude' installed? Run: npm install -g @anthropic-ai/claude-code");
-    try {
-      fs.unlinkSync(tmpCert);
-    } catch {}
+    try { fs.unlinkSync(tmpCert); } catch {}
+    if (sharerAccount) restoreClaudeJson(originalAccount);
     process.exit(1);
   });
 

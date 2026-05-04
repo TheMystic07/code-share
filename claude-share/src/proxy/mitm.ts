@@ -211,8 +211,23 @@ export async function createMitmProxy(connectionId?: string): Promise<MitmProxy>
       });
     }
 
-    proxy.onConnect((_req: any, _socket: any, _head: any, callback: () => void) => {
-      callback();
+    proxy.onConnect((req: any, socket: any, head: any, callback: () => void) => {
+      const [hostname, portStr] = (req.url as string ?? "").split(":");
+      if (INTERCEPT_DOMAINS.has(hostname)) {
+        callback();
+        return;
+      }
+      // Non-Anthropic domain: transparent TCP tunnel — no cert, no decryption.
+      // The client's TLS handshake goes straight to the real server.
+      const port = parseInt(portStr, 10) || 443;
+      const upstream = net.connect(port, hostname, () => {
+        socket.write("HTTP/1.1 200 Connection established\r\n\r\n");
+        if (head?.length) upstream.write(head);
+        upstream.pipe(socket);
+        socket.pipe(upstream);
+      });
+      upstream.on("error", () => socket.destroy());
+      socket.on("error", () => upstream.destroy());
     });
 
     // Listen on a random localhost port — CA generation completes before callback fires

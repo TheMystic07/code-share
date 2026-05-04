@@ -2,6 +2,8 @@ import { execFile } from "node:child_process";
 import os from "node:os";
 import { promisify } from "node:util";
 
+import { logger } from "../logger.js";
+
 const execFileAsync = promisify(execFile);
 
 interface OAuthCredentials {
@@ -51,6 +53,7 @@ function scheduleKeychainReread(creds: OAuthCredentials): void {
       scheduleKeychainReread(cached);
     } catch (err) {
       console.error("[token] Keychain re-read failed, will retry in 60s:", err);
+      logger.error("[token] Keychain re-read failed, will retry in 60s", err);
       refreshTimer = setTimeout(() => scheduleKeychainReread(creds), 60_000);
       refreshTimer.unref();
     }

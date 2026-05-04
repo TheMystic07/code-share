@@ -9,6 +9,7 @@ import { serve } from "@hono/node-server";
 import { render } from "ink";
 import React from "react";
 
+import { logger } from "./logger.js";
 import { createPortDetector } from "./port/detector.js";
 import { createMitmProxy } from "./proxy/mitm.js";
 import { initToken, stopTokenRefresh } from "./proxy/token.js";
@@ -136,12 +137,17 @@ async function main() {
   if (useTunnel) {
     console.log("Starting Cloudflare tunnel...");
     try {
-      tunnel = await startTunnel(PORT, () => { tunnelDown = true; });
+      tunnel = await startTunnel(PORT, () => {
+        tunnelDown = true;
+        logger.error("Cloudflare tunnel disconnected unexpectedly");
+      });
       publicUrl = tunnel.publicUrl;
       urls.public = publicUrl;
+      logger.info(`Tunnel active: ${publicUrl}`);
       console.log(`Tunnel active: ${publicUrl}`);
     } catch (err) {
       console.warn("Could not start tunnel", (err as Error).message);
+      logger.warn("Could not start Cloudflare tunnel", err);
       tunnel = { publicUrl: null, close: () => {} };
     }
   } else {

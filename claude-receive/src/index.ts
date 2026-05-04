@@ -10,6 +10,8 @@ import path from "node:path";
 import * as p from "@clack/prompts";
 import { xchacha20poly1305 } from "@noble/ciphers/chacha.js";
 
+import { logger } from "./logger.js";
+
 // ── Types shared with claude-share ──────────────────────────────────────────
 
 interface SharerAccount {
@@ -266,6 +268,7 @@ async function pairFlow(
         const body = (await res.json()) as { error?: string } | null;
         if (body?.error) message = body.error;
       } catch {}
+      logger.error(`Pairing failed: ${message}`, { serverUrl });
       p.log.error(message);
       process.exit(1);
     }
@@ -274,6 +277,7 @@ async function pairFlow(
     connectionId = data.machineId;
   } catch (err) {
     spin.stop("Network error.");
+    logger.error("Pairing network error", err);
     p.log.error((err as Error).message);
     process.exit(1);
   }
@@ -565,7 +569,10 @@ async function launchClaude(
   try {
     const res = await sessionPost(meta.serverUrl, "/session/start", { machineId: meta.id });
     sessionId = (res["sessionId"] as string) ?? null;
-  } catch {}
+    if (!sessionId) logger.warn("session/start returned no sessionId", { machineId: meta.id });
+  } catch (err) {
+    logger.error("session/start failed", err);
+  }
 
   // 30-second heartbeat so sharer sees lastActiveAt update
   const heartbeat = sessionId
@@ -615,6 +622,7 @@ async function launchClaude(
   child.on("exit", (code) => { void cleanupAndExit(code); });
   child.on("error", (err) => {
     console.error("\nFailed to launch claude:", err.message);
+    logger.error("Failed to launch claude process", err);
     console.error("Is 'claude' installed? Run: npm install -g @anthropic-ai/claude-code");
     if (heartbeat) clearInterval(heartbeat);
     if (sessionId) {

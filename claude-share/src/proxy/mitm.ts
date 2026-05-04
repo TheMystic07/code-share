@@ -5,6 +5,7 @@ import path from "node:path";
 
 import { Proxy } from "http-mitm-proxy";
 
+import { logger } from "../logger.js";
 import { getSession } from "../session/manager.js";
 import { writeDevLog, truncate, LOG_FILE, type DevLogEntry } from "./devLogger.js";
 import { logRequest, setResponseStatus } from "./requestLog.js";
@@ -88,6 +89,7 @@ export async function createMitmProxy(connectionId?: string): Promise<MitmProxy>
     proxy.onError((ctx: any, err: any) => {
       if (err && (err as NodeJS.ErrnoException).code !== "ECONNRESET") {
         console.error("[mitm] error:", err.message);
+        logger.error("[mitm] proxy error", err);
       }
     });
 

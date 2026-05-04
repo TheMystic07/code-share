@@ -1,5 +1,7 @@
+import { spawn } from "node:child_process";
+
 import { Box, Text, useInput, useApp } from "ink";
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 
 import { regeneratePairingCode, type Machine, type Session } from "../session/manager.js";
 
@@ -41,6 +43,14 @@ interface Props {
   onExit: () => void;
 }
 
+function copyToClipboard(text: string): void {
+  const cmd = process.platform === "darwin" ? "pbcopy" : "xclip";
+  const args = process.platform === "darwin" ? [] : ["-selection", "clipboard"];
+  const proc = spawn(cmd, args, { stdio: ["pipe", "ignore", "ignore"] });
+  proc.stdin.write(text);
+  proc.stdin.end();
+}
+
 export function App({ publicUrl, lanUrl, loopbackUrl, localPort, sharedUntil, getSession, onExit }: Props) {
   const { exit } = useApp();
   const [view, setView] = useState<View>("pairing");
@@ -49,6 +59,7 @@ export function App({ publicUrl, lanUrl, loopbackUrl, localPort, sharedUntil, ge
   const [cursorIdx, setCursorIdx] = useState(0);
   const [selectedMachineId, setSelectedMachineId] = useState<string | null>(null);
   const [, setTick] = useState(0);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -95,13 +106,23 @@ export function App({ publicUrl, lanUrl, loopbackUrl, localPort, sharedUntil, ge
       setView("pairing");
       setSelectedMachineId(null);
     }
+
+    if (input === "c" && view === "pairing") {
+      const best = lanUrl ?? publicUrl ?? loopbackUrl;
+      copyToClipboard(connectUrl(best));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
   });
 
   const selectedMachine = selectedMachineId
     ? machines.find((m) => m.id === selectedMachineId) ?? null
     : null;
 
-  const connectUrl = (base: string) => `${base}/connect/${pairingCode}`;
+  const connectUrl = useCallback(
+    (base: string) => `${base}/connect/${pairingCode}`,
+    [pairingCode],
+  );
 
   return (
     <Box flexDirection="column" padding={1}>
@@ -196,7 +217,11 @@ export function App({ publicUrl, lanUrl, loopbackUrl, localPort, sharedUntil, ge
       {/* Footer */}
       <Box marginTop={1} gap={2}>
         <Text dimColor>q quit</Text>
-        {view === "pairing" && <Text dimColor>waiting for connection…</Text>}
+        {view === "pairing" && (
+          copied
+            ? <Text color="green">✓ copied!</Text>
+            : <Text dimColor>c copy url</Text>
+        )}
         {view === "machines" && <Text dimColor>↑↓ select · enter view sessions · n new pairing</Text>}
         {view === "sessions" && <Text dimColor>esc back · n new pairing</Text>}
       </Box>

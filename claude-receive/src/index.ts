@@ -230,9 +230,9 @@ async function pairFlow(
       p.log.error(err.error ?? "Pairing rejected");
       process.exit(1);
     }
-    const data = (await res.json()) as { blob: string; connectionId: string };
+    const data = (await res.json()) as { blob: string; machineId: string };
     blob = data.blob;
-    connectionId = data.connectionId;
+    connectionId = data.machineId;
   } catch (err) {
     spin.stop("Network error.");
     p.log.error((err as Error).message);
@@ -482,15 +482,18 @@ async function checkClaudeInstalled(): Promise<boolean> {
   return execFileAsync(which, ["claude"]).then(() => true).catch(() => false);
 }
 
-async function notifySession(serverUrl: string, connectionId: string, action: "start" | "end"): Promise<void> {
-  try {
-    await fetch(`${serverUrl}/session/${action}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ connectionId }),
-      signal: AbortSignal.timeout(5_000),
-    });
-  } catch {}
+async function sessionPost(
+  serverUrl: string,
+  path: string,
+  body: Record<string, string>,
+): Promise<Record<string, unknown>> {
+  const r = await fetch(`${serverUrl}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(5_000),
+  });
+  return r.ok ? (r.json() as Promise<Record<string, unknown>>) : {};
 }
 
 async function launchClaude(
@@ -517,7 +520,22 @@ async function launchClaude(
   const tmpCert = path.join(os.tmpdir(), `claude-share-ca-${Date.now()}.pem`);
   fs.writeFileSync(tmpCert, caPem, { mode: 0o600 });
 
-  await notifySession(meta.serverUrl, meta.id, "start");
+  // Register this Claude session with the sharer
+  let sessionId: string | null = null;
+  try {
+    const res = await sessionPost(meta.serverUrl, "/session/start", { machineId: meta.id });
+    sessionId = (res["sessionId"] as string) ?? null;
+  } catch {}
+
+  // 30-second heartbeat so sharer sees lastActiveAt update
+  const heartbeat = sessionId
+    ? setInterval(() => {
+        void sessionPost(meta.serverUrl, "/session/heartbeat", {
+          machineId: meta.id,
+          sessionId: sessionId!,
+        }).catch(() => {});
+      }, 30_000)
+    : null;
 
   p.log.success(`Launching Claude as ${meta.name}. All API calls proxied through sharer.`);
   p.log.info(`Proxy: ${proxyUrl}`);
@@ -538,7 +556,13 @@ async function launchClaude(
   });
 
   async function cleanupAndExit(code: number | null) {
-    await notifySession(meta.serverUrl, meta.id, "end");
+    if (heartbeat) clearInterval(heartbeat);
+    if (sessionId) {
+      await sessionPost(meta.serverUrl, "/session/end", {
+        machineId: meta.id,
+        sessionId,
+      }).catch(() => {});
+    }
     try { fs.unlinkSync(tmpCert); } catch {}
     if (sharerAccount) restoreClaudeJson(originalAccount);
     const duration = Math.floor((Date.now() - startTime) / 1000);
@@ -552,7 +576,10 @@ async function launchClaude(
   child.on("error", (err) => {
     console.error("\nFailed to launch claude:", err.message);
     console.error("Is 'claude' installed? Run: npm install -g @anthropic-ai/claude-code");
-    void notifySession(meta.serverUrl, meta.id, "end");
+    if (heartbeat) clearInterval(heartbeat);
+    if (sessionId) {
+      void sessionPost(meta.serverUrl, "/session/end", { machineId: meta.id, sessionId }).catch(() => {});
+    }
     try { fs.unlinkSync(tmpCert); } catch {}
     if (sharerAccount) restoreClaudeJson(originalAccount);
     process.exit(1);

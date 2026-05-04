@@ -1,121 +1,204 @@
-import { execSync } from "node:child_process";
-
 import { Box, Text, useInput, useApp } from "ink";
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
 
-import { getEntries, subscribe } from "../proxy/requestLog.js";
-import { getSession, revokeConnection, type Connection } from "../session/manager.js";
-import { RequestLog } from "./RequestLog.js";
-import { Sessions } from "./Sessions.js";
-import { Stats } from "./Stats.js";
+import { regeneratePairingCode, type Machine, type Session } from "../session/manager.js";
 
 const IS_DEV = process.env.NODE_ENV === "development";
 
-function copyToClipboard(text: string): boolean {
-  try {
-    if (process.platform === "darwin") {
-      execSync("pbcopy", { input: text });
-    } else if (process.platform === "win32") {
-      execSync("clip", { input: text });
-    } else {
-      execSync("xclip -selection clipboard", { input: text });
-    }
-    return true;
-  } catch {
-    return false;
-  }
+type View = "pairing" | "machines" | "sessions";
+
+function formatRelative(date: Date): string {
+  const secs = Math.floor((Date.now() - date.getTime()) / 1000);
+  if (secs < 5) return "just now";
+  if (secs < 60) return `${secs}s ago`;
+  if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
+  return `${Math.floor(secs / 3600)}h ${Math.floor((secs % 3600) / 60)}m ago`;
+}
+
+function formatExpiry(date: Date): string {
+  const ms = date.getTime() - Date.now();
+  if (ms <= 0) return "expired";
+  const h = Math.floor(ms / 3_600_000);
+  const m = Math.floor((ms % 3_600_000) / 60_000);
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
+function latestActivity(machine: Machine): Date {
+  if (machine.sessions.size === 0) return machine.pairedAt;
+  return [...machine.sessions.values()].reduce(
+    (latest, s) => (s.lastActiveAt > latest ? s.lastActiveAt : latest),
+    machine.pairedAt,
+  );
 }
 
 interface Props {
   publicUrl: string | null;
   lanUrl: string | null;
   loopbackUrl: string;
-  pairingCode: string;
   localPort: number;
   sharedUntil: Date;
-  onRevoke: (id: string) => void;
+  getSession: () => Session | null;
   onExit: () => void;
 }
 
-export function App({
-  publicUrl,
-  lanUrl,
-  loopbackUrl,
-  pairingCode,
-  localPort,
-  sharedUntil,
-  onRevoke,
-  onExit,
-}: Props) {
+export function App({ publicUrl, lanUrl, loopbackUrl, localPort, sharedUntil, getSession, onExit }: Props) {
   const { exit } = useApp();
-  const [connections, setConnections] = useState<Connection[]>([]);
-  const [totalRequests, setTotalRequests] = useState(0);
-  const [copied, setCopied] = useState(false);
-  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [view, setView] = useState<View>("pairing");
+  const [pairingCode, setPairingCode] = useState(() => getSession()?.pairingCode ?? "");
+  const [machines, setMachines] = useState<Machine[]>([]);
+  const [cursorIdx, setCursorIdx] = useState(0);
+  const [selectedMachineId, setSelectedMachineId] = useState<string | null>(null);
+  const [, setTick] = useState(0);
 
-  // Poll session connections every second
   useEffect(() => {
     const interval = setInterval(() => {
       const session = getSession();
       if (!session) return;
-      setConnections(Array.from(session.connections.values()));
+      setPairingCode(session.pairingCode);
+      setMachines([...session.machines.values()]);
+      setTick((t) => t + 1);
+      if (session.pairingCodeUsed) {
+        setView((v) => (v === "pairing" ? "machines" : v));
+      }
     }, 1000);
     return () => clearInterval(interval);
   }, []);
 
-  // Count allowed requests reactively from the request log
   useEffect(() => {
-    const count = () =>
-      setTotalRequests(getEntries().filter((e) => e.outcome === "allowed").length);
-    count();
-    return subscribe(count);
-  }, []);
+    setCursorIdx((i) => Math.min(i, Math.max(0, machines.length - 1)));
+  }, [machines.length]);
 
   useInput((input, key) => {
     if (input === "q" || (key.ctrl && input === "c")) {
       onExit();
       exit();
+      return;
     }
-    if (input === "c" && !key.ctrl) {
-      const connectUrl =
-        (publicUrl ? `${publicUrl}/connect/${pairingCode}` : null) ??
-        (lanUrl ? `${lanUrl}/connect/${pairingCode}` : null) ??
-        `${loopbackUrl}/connect/${pairingCode}`;
-      const ok = copyToClipboard(connectUrl);
-      if (ok) {
-        setCopied(true);
-        if (copyTimer.current) clearTimeout(copyTimer.current);
-        copyTimer.current = setTimeout(() => setCopied(false), 2000);
+
+    if (view === "machines") {
+      if (key.upArrow) setCursorIdx((i) => Math.max(0, i - 1));
+      if (key.downArrow) setCursorIdx((i) => Math.min(machines.length - 1, i + 1));
+      if (key.return && machines.length > 0) {
+        setSelectedMachineId(machines[cursorIdx]?.id ?? null);
+        setView("sessions");
       }
+    }
+
+    if (view === "sessions" && key.escape) {
+      setView("machines");
+      setSelectedMachineId(null);
+    }
+
+    if (input === "n" && view !== "pairing") {
+      const session = getSession();
+      if (session) regeneratePairingCode(session);
+      setView("pairing");
+      setSelectedMachineId(null);
     }
   });
 
-  function handleRevoke(id: string) {
-    const session = getSession();
-    if (session) revokeConnection(session, id);
-    onRevoke(id);
-  }
+  const selectedMachine = selectedMachineId
+    ? machines.find((m) => m.id === selectedMachineId) ?? null
+    : null;
+
+  const connectUrl = (base: string) => `${base}/connect/${pairingCode}`;
 
   return (
     <Box flexDirection="column" padding={1}>
-      <Stats
-        publicUrl={publicUrl}
-        lanUrl={lanUrl}
-        loopbackUrl={loopbackUrl}
-        pairingCode={pairingCode}
-        localPort={localPort}
-        sharedUntil={sharedUntil}
-        totalRequests={totalRequests}
-      />
-      <Sessions connections={connections} onRevoke={handleRevoke} />
-      {IS_DEV && <RequestLog />}
+      {/* Header — always visible */}
+      <Box gap={2} marginBottom={1}>
+        <Text bold color="cyan">claude-share</Text>
+        <Text dimColor>{formatExpiry(sharedUntil)} remaining</Text>
+        <Text dimColor>:{localPort}</Text>
+      </Box>
+
+      {/* Pairing view */}
+      {view === "pairing" && (
+        <Box flexDirection="column" borderStyle="round" borderColor="green" paddingX={2} paddingY={1}>
+          <Text bold color="green">Waiting for a machine to connect…</Text>
+          <Box flexDirection="column" marginTop={1} gap={0}>
+            {lanUrl && (
+              <Box gap={1}>
+                <Text dimColor>LAN   </Text>
+                <Text bold>{connectUrl(lanUrl)}</Text>
+              </Box>
+            )}
+            {publicUrl ? (
+              <Box gap={1}>
+                <Text dimColor>Public</Text>
+                <Text>{connectUrl(publicUrl)}</Text>
+              </Box>
+            ) : (
+              <Box gap={1}>
+                <Text dimColor>Public</Text>
+                <Text color="yellow">tunnel starting…</Text>
+              </Box>
+            )}
+            <Box gap={1}>
+              <Text dimColor>Local </Text>
+              <Text dimColor>{connectUrl(loopbackUrl)}</Text>
+            </Box>
+          </Box>
+          <Box marginTop={1}><Text dimColor>One-time code — only one machine can use it.</Text></Box>
+        </Box>
+      )}
+
+      {/* Machines list */}
+      {view === "machines" && (
+        <Box flexDirection="column">
+          <Box marginBottom={1}><Text bold>Machines ({machines.length})</Text></Box>
+          {machines.length === 0 ? (
+            <Text dimColor>No machines yet.</Text>
+          ) : (
+            machines.map((m, i) => {
+              const active = [...m.sessions.values()].some((s) => s.active);
+              const last = latestActivity(m);
+              const cursor = i === cursorIdx;
+              return (
+                <Box key={m.id} gap={1}>
+                  <Text color={cursor ? "cyan" : undefined}>{cursor ? "›" : " "}</Text>
+                  <Text color={active ? "green" : "yellow"}>●</Text>
+                  <Text bold={cursor}>{m.name}</Text>
+                  <Text dimColor>— {formatRelative(last)}</Text>
+                </Box>
+              );
+            })
+          )}
+        </Box>
+      )}
+
+      {/* Sessions detail */}
+      {view === "sessions" && selectedMachine && (
+        <Box flexDirection="column">
+          <Box marginBottom={1}><Text bold>{selectedMachine.name} — Sessions</Text></Box>
+          {selectedMachine.sessions.size === 0 ? (
+            <Text dimColor>No sessions yet.</Text>
+          ) : (
+            [...selectedMachine.sessions.values()]
+              .sort((a, b) => b.lastActiveAt.getTime() - a.lastActiveAt.getTime())
+              .map((s) => (
+                <Box key={s.id} gap={2}>
+                  <Text color={s.active ? "green" : "gray"}>●</Text>
+                  <Text dimColor>{s.id.slice(0, 8)}</Text>
+                  <Text dimColor>{formatRelative(s.lastActiveAt)}</Text>
+                </Box>
+              ))
+          )}
+        </Box>
+      )}
+
+      {IS_DEV && (
+        <Box marginTop={1}>
+          <Text dimColor>[dev] proxy log → claude-share-dev.log</Text>
+        </Box>
+      )}
+
+      {/* Footer */}
       <Box marginTop={1} gap={2}>
-        <Text dimColor>Press q to quit</Text>
-        {copied ? (
-          <Text color="green">✓ Copied!</Text>
-        ) : (
-          <Text dimColor>Press c to copy connect link</Text>
-        )}
+        <Text dimColor>q quit</Text>
+        {view === "pairing" && <Text dimColor>waiting for connection…</Text>}
+        {view === "machines" && <Text dimColor>↑↓ select · enter view sessions · n new pairing</Text>}
+        {view === "sessions" && <Text dimColor>esc back · n new pairing</Text>}
       </Box>
     </Box>
   );

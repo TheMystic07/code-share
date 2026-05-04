@@ -13,7 +13,15 @@ import { createPortDetector } from "./port/detector.js";
 import { createMitmProxy } from "./proxy/mitm.js";
 import { initToken, stopTokenRefresh, getAccessToken } from "./proxy/token.js";
 import { createApiApp } from "./server/index.js";
-import { createSession, destroySession, isSessionExpired, type SharerAccount } from "./session/manager.js";
+import {
+  createSession,
+  destroySession,
+  isSessionExpired,
+  getSession,
+  regeneratePairingCode,
+  type SharerAccount,
+  type Machine,
+} from "./session/manager.js";
 import { App } from "./tui/App.js";
 import { startTunnel } from "./tunnel/index.js";
 
@@ -198,10 +206,9 @@ async function main() {
       publicUrl,
       loopbackUrl,
       lanUrl,
-      pairingCode: session.pairingCode,
       localPort: PORT,
       sharedUntil: session.sharedUntil,
-      onRevoke: () => {},
+      getSession: () => getSession(),
       onExit: () => {
         cleanup();
         process.exit(0);

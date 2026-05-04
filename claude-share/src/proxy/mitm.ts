@@ -5,7 +5,7 @@ import path from "node:path";
 
 import { Proxy } from "http-mitm-proxy";
 
-import { recordRequest, getSession } from "../session/manager.js";
+import { getSession } from "../session/manager.js";
 import { writeDevLog, truncate, LOG_FILE, type DevLogEntry } from "./devLogger.js";
 import { logRequest, setResponseStatus } from "./requestLog.js";
 import { getAccessToken } from "./token.js";
@@ -148,10 +148,6 @@ export async function createMitmProxy(connectionId?: string): Promise<MitmProxy>
       delete ctx.proxyToServerRequestOptions.headers["x-forwarded-for"];
       delete ctx.proxyToServerRequestOptions.headers["x-real-ip"];
 
-      if (connectionId) {
-        const session = getSession();
-        if (session) recordRequest(session, connectionId);
-      }
 
       if (IS_DEV && hostname === "api.anthropic.com") {
         ctx[DEV_ENTRY] = {

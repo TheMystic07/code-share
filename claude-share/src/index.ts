@@ -44,12 +44,6 @@ function getLanIp(): string | null {
   return null;
 }
 
-function nextMidnight(): Date {
-  const d = new Date();
-  d.setHours(24, 0, 0, 0);
-  return d;
-}
-
 function formatTime(d: Date): string {
   return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
@@ -84,20 +78,25 @@ async function fetchResetTime(): Promise<Date | null> {
 async function promptDuration(): Promise<number> {
   const spin = p.spinner();
   spin.start("Checking usage reset time...");
-  const resetTime = (await fetchResetTime()) ?? nextMidnight();
+  const resetTime = await fetchResetTime();
   spin.stop();
 
-  const resetMs = resetTime.getTime() - Date.now();
-  const resetLabel = formatTime(resetTime);
+  const staticOptions = [
+    { value: 6 * 60 * 60 * 1000, label: "6 hours" },
+    { value: 24 * 60 * 60 * 1000, label: "24 hours" },
+    { value: 7 * 24 * 60 * 60 * 1000, label: "1 week" },
+  ];
+
+  const options = resetTime
+    ? [
+        { value: resetTime.getTime() - Date.now(), label: `Till this session ends — ${formatTime(resetTime)}` },
+        ...staticOptions,
+      ]
+    : staticOptions;
 
   const choice = await p.select({
     message: "How long do you want to share?",
-    options: [
-      { value: resetMs, label: `Till this session ends — ${resetLabel}` },
-      { value: 6 * 60 * 60 * 1000, label: "6 hours" },
-      { value: 24 * 60 * 60 * 1000, label: "24 hours" },
-      { value: 7 * 24 * 60 * 60 * 1000, label: "1 week" },
-    ],
+    options,
   });
 
   if (p.isCancel(choice)) {

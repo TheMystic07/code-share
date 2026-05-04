@@ -44,7 +44,7 @@ interface SavedConnection {
 
 const CLAUDE_SHARE_DIR = path.join(os.homedir(), ".claude-share");
 const CONNECTIONS_DIR = path.join(CLAUDE_SHARE_DIR, "connections");
-const ACCOUNT_BACKUP_FILE = path.join(CLAUDE_SHARE_DIR, "account-backup.json");
+
 const CONFIG_FILE = path.join(CLAUDE_SHARE_DIR, "config.json");
 
 function ensureConnectionsDir() {
@@ -525,78 +525,6 @@ async function ensureCredentials() {
   }
 }
 
-function patchClaudeJson(
-  sharerAccount: SharerAccount,
-): Record<string, unknown> | null {
-  const claudeJsonPath = path.join(os.homedir(), ".claude.json");
-  try {
-    const config = JSON.parse(
-      fs.readFileSync(claudeJsonPath, "utf8"),
-    ) as Record<string, unknown>;
-    const original = config["oauthAccount"] ?? null;
-
-    // Persist backup so --cleanup can restore even if the process crashed
-    fs.mkdirSync(path.join(os.homedir(), ".claude-share"), { recursive: true });
-    fs.writeFileSync(
-      ACCOUNT_BACKUP_FILE,
-      JSON.stringify({ oauthAccount: original }, null, 2),
-      { mode: 0o600 },
-    );
-
-    config["oauthAccount"] = {
-      ...(typeof original === "object" && original !== null ? original : {}),
-      emailAddress: sharerAccount.emailAddress,
-      displayName: sharerAccount.displayName,
-      organizationName: sharerAccount.organizationName,
-    };
-    fs.writeFileSync(claudeJsonPath, JSON.stringify(config, null, 2), {
-      mode: 0o600,
-    });
-    return original as Record<string, unknown> | null;
-  } catch {
-    return null;
-  }
-}
-
-function restoreClaudeJson(original: Record<string, unknown> | null): void {
-  const claudeJsonPath = path.join(os.homedir(), ".claude.json");
-  try {
-    const config = JSON.parse(
-      fs.readFileSync(claudeJsonPath, "utf8"),
-    ) as Record<string, unknown>;
-    if (original === null) {
-      delete config["oauthAccount"];
-    } else {
-      config["oauthAccount"] = original;
-    }
-    fs.writeFileSync(claudeJsonPath, JSON.stringify(config, null, 2), {
-      mode: 0o600,
-    });
-    try {
-      fs.unlinkSync(ACCOUNT_BACKUP_FILE);
-    } catch {}
-  } catch {}
-}
-
-function cleanupFlow(): void {
-  if (!fs.existsSync(ACCOUNT_BACKUP_FILE)) {
-    console.log("Nothing to clean up — no account backup found.");
-    process.exit(0);
-  }
-
-  try {
-    const backup = JSON.parse(fs.readFileSync(ACCOUNT_BACKUP_FILE, "utf8")) as {
-      oauthAccount: Record<string, unknown> | null;
-    };
-    restoreClaudeJson(backup.oauthAccount);
-    console.log("Restored original oauthAccount in ~/.claude.json.");
-  } catch (err) {
-    console.error("Cleanup failed:", (err as Error).message);
-    process.exit(1);
-  }
-
-  process.exit(0);
-}
 
 async function checkClaudeInstalled(): Promise<boolean> {
   const which = process.platform === "win32" ? "where" : "which";
@@ -635,7 +563,6 @@ async function launchClaude(
   ensureOnboarding();
   await ensureCredentials();
 
-  const originalAccount = sharerAccount ? patchClaudeJson(sharerAccount) : null;
   if (sharerAccount) {
     p.log.info(
       `Connecting as ${sharerAccount.displayName} (${sharerAccount.emailAddress})`,
@@ -703,7 +630,6 @@ async function launchClaude(
     try {
       fs.unlinkSync(tmpCert);
     } catch {}
-    if (sharerAccount) restoreClaudeJson(originalAccount);
     const duration = Math.floor((Date.now() - startTime) / 1000);
     const mins = Math.floor(duration / 60);
     const secs = duration % 60;
@@ -730,7 +656,6 @@ async function launchClaude(
     try {
       fs.unlinkSync(tmpCert);
     } catch {}
-    if (sharerAccount) restoreClaudeJson(originalAccount);
     process.exit(1);
   });
 
@@ -757,12 +682,9 @@ args.forEach((a, i) => {
 const claudeArgs = args.filter((_, i) => !ownIdxs.has(i));
 const shareArg = args.find((a) => a.startsWith("--share="));
 
-// Silently remove connections whose sharing window has elapsed
-if (args[0] !== "--cleanup") pruneExpiredConnections();
+pruneExpiredConnections();
 
-if (args[0] === "--cleanup") {
-  cleanupFlow();
-} else if (args[0] === "--list" || args[0] === "-l") {
+if (args[0] === "--list" || args[0] === "-l") {
   await listFlow();
 } else if (args[0] === "--reconnect" || args[0] === "-r") {
   await reconnectFlow(args[1], claudeArgs);

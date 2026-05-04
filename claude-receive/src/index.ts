@@ -38,11 +38,53 @@ interface SavedConnection {
 
 // ── Paths ────────────────────────────────────────────────────────────────────
 
-const CONNECTIONS_DIR = path.join(os.homedir(), ".claude-share", "connections");
-const ACCOUNT_BACKUP_FILE = path.join(os.homedir(), ".claude-share", "account-backup.json");
+const CLAUDE_SHARE_DIR = path.join(os.homedir(), ".claude-share");
+const CONNECTIONS_DIR = path.join(CLAUDE_SHARE_DIR, "connections");
+const ACCOUNT_BACKUP_FILE = path.join(CLAUDE_SHARE_DIR, "account-backup.json");
+const CONFIG_FILE = path.join(CLAUDE_SHARE_DIR, "config.json");
 
 function ensureConnectionsDir() {
   fs.mkdirSync(CONNECTIONS_DIR, { recursive: true });
+}
+
+// ── Device config ─────────────────────────────────────────────────────────────
+
+interface ReceiverConfig {
+  deviceName: string;
+}
+
+function readConfig(): ReceiverConfig | null {
+  try {
+    return JSON.parse(fs.readFileSync(CONFIG_FILE, "utf8")) as ReceiverConfig;
+  } catch {
+    return null;
+  }
+}
+
+function writeConfig(config: ReceiverConfig): void {
+  fs.mkdirSync(CLAUDE_SHARE_DIR, { recursive: true });
+  fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), { mode: 0o600 });
+}
+
+async function getDeviceName(): Promise<string> {
+  const saved = readConfig();
+  if (saved?.deviceName) return saved.deviceName;
+
+  let name: string;
+  try {
+    if (process.platform === "darwin") {
+      const { stdout } = await execFileAsync("scutil", ["--get", "ComputerName"]);
+      name = stdout.trim();
+    } else {
+      const { stdout } = await execFileAsync("hostname");
+      name = stdout.trim();
+    }
+  } catch {
+    name = os.hostname();
+  }
+
+  writeConfig({ deviceName: name });
+  return name;
 }
 
 function connectionPath(id: string) {
@@ -167,14 +209,8 @@ async function pairFlow(
     }
   }
 
-  const name = await p.text({
-    message: "Your name (shown to sharer):",
-    defaultValue: os.userInfo().username,
-  });
-  if (p.isCancel(name)) {
-    p.cancel("Cancelled.");
-    process.exit(0);
-  }
+  const name = await getDeviceName();
+  p.log.info(`Connecting as "${name}"`);
 
   const spin = p.spinner();
   spin.start("Pairing...");
@@ -446,10 +482,21 @@ async function checkClaudeInstalled(): Promise<boolean> {
   return execFileAsync(which, ["claude"]).then(() => true).catch(() => false);
 }
 
+async function notifySession(serverUrl: string, connectionId: string, action: "start" | "end"): Promise<void> {
+  try {
+    await fetch(`${serverUrl}/session/${action}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ connectionId }),
+      signal: AbortSignal.timeout(5_000),
+    });
+  } catch {}
+}
+
 async function launchClaude(
   proxyUrl: string,
   caPem: string,
-  meta: { name: string },
+  meta: { name: string; id: string; serverUrl: string },
   claudeArgs: string[] = [],
   sharerAccount: SharerAccount | null = null,
 ) {
@@ -470,6 +517,8 @@ async function launchClaude(
   const tmpCert = path.join(os.tmpdir(), `claude-share-ca-${Date.now()}.pem`);
   fs.writeFileSync(tmpCert, caPem, { mode: 0o600 });
 
+  await notifySession(meta.serverUrl, meta.id, "start");
+
   p.log.success(`Launching Claude as ${meta.name}. All API calls proxied through sharer.`);
   p.log.info(`Proxy: ${proxyUrl}`);
   if (claudeArgs.length > 0) p.log.info(`Extra args: ${claudeArgs.join(" ")}`);
@@ -488,7 +537,8 @@ async function launchClaude(
     },
   });
 
-  function cleanupAndExit(code: number | null) {
+  async function cleanupAndExit(code: number | null) {
+    await notifySession(meta.serverUrl, meta.id, "end");
     try { fs.unlinkSync(tmpCert); } catch {}
     if (sharerAccount) restoreClaudeJson(originalAccount);
     const duration = Math.floor((Date.now() - startTime) / 1000);
@@ -498,10 +548,11 @@ async function launchClaude(
     process.exit(code ?? 0);
   }
 
-  child.on("exit", (code) => cleanupAndExit(code));
+  child.on("exit", (code) => { void cleanupAndExit(code); });
   child.on("error", (err) => {
     console.error("\nFailed to launch claude:", err.message);
     console.error("Is 'claude' installed? Run: npm install -g @anthropic-ai/claude-code");
+    void notifySession(meta.serverUrl, meta.id, "end");
     try { fs.unlinkSync(tmpCert); } catch {}
     if (sharerAccount) restoreClaudeJson(originalAccount);
     process.exit(1);

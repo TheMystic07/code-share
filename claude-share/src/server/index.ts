@@ -82,6 +82,28 @@ export function createApiApp(urls: Urls, caPem: string, sharerAccount: SharerAcc
     });
   });
 
+  /** POST /session/start — receiver opened a new Claude session */
+  app.post("/session/start", async (c) => {
+    const session = getSession();
+    if (!session) return c.json({ error: "No session" }, 503);
+    const { connectionId } = await c.req.json<{ connectionId: string }>();
+    const conn = session.connections.get(connectionId);
+    if (!conn) return c.json({ error: "Connection not found" }, 404);
+    conn.activeSessions++;
+    return c.json({ ok: true, activeSessions: conn.activeSessions });
+  });
+
+  /** POST /session/end — receiver closed a Claude session */
+  app.post("/session/end", async (c) => {
+    const session = getSession();
+    if (!session) return c.json({ error: "No session" }, 503);
+    const { connectionId } = await c.req.json<{ connectionId: string }>();
+    const conn = session.connections.get(connectionId);
+    if (!conn) return c.json({ error: "Connection not found" }, 404);
+    conn.activeSessions = Math.max(0, conn.activeSessions - 1);
+    return c.json({ ok: true, activeSessions: conn.activeSessions });
+  });
+
   /** DELETE /sessions/:id — revoke a connection */
   app.delete("/sessions/:id", (c) => {
     const session = getSession();

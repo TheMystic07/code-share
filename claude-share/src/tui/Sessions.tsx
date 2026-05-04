@@ -35,6 +35,9 @@ export function Sessions({ connections, onRevoke: _onRevoke }: Props) {
           <Box flexDirection="column">
             <Text bold>{conn.name}</Text>
             <Text dimColor>
+              {conn.activeSessions > 0
+                ? `${conn.activeSessions} active session${conn.activeSessions > 1 ? "s" : ""} · `
+                : ""}
               {conn.requestCount} req · connected {formatDuration(conn.connectedAt)} ago
             </Text>
             <Text dimColor color="yellow">

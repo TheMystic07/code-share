@@ -33,6 +33,7 @@ export interface Connection {
   requestCount: number;
   lastSeenAt: Date;
   status: SessionStatus;
+  activeSessions: number;
 }
 
 export interface SharerAccount {
@@ -130,6 +131,7 @@ export function addConnection(session: Session, name: string): Connection {
     requestCount: 0,
     lastSeenAt: new Date(),
     status: "active",
+    activeSessions: 0,
   };
   session.connections.set(conn.id, conn);
   session.status = "active";

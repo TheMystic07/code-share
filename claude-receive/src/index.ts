@@ -260,9 +260,13 @@ async function pairFlow(
       signal: AbortSignal.timeout(10_000),
     });
     if (!res.ok) {
-      const err = (await res.json()) as { error: string };
       spin.stop("Failed.");
-      p.log.error(err.error ?? "Pairing rejected");
+      let message = `HTTP ${res.status}`;
+      try {
+        const body = (await res.json()) as { error?: string } | null;
+        if (body?.error) message = body.error;
+      } catch {}
+      p.log.error(message);
       process.exit(1);
     }
     const data = (await res.json()) as { blob: string; machineId: string };

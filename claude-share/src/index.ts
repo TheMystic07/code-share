@@ -118,13 +118,13 @@ async function main() {
       : portIdx !== -1
         ? parseInt(argv[portIdx + 1], 10)
         : null;
-  const PORT =
+  let PORT =
     portFlag != null && !isNaN(portFlag)
       ? portFlag
       : parseInt(process.env.PORT ?? String(DEFAULT_PORT), 10);
   const lanIp = getLanIp();
-  const lanUrl = lanIp ? `https://${lanIp}:${PORT}` : null;
-  const loopbackUrl = `http://localhost:${PORT}`;
+  let lanUrl = lanIp ? `https://${lanIp}:${PORT}` : null;
+  let loopbackUrl = `http://localhost:${PORT}`;
 
   // MITM proxy resolves only after its RSA CA is ready (no race on CONNECT)
   const mitmProxy = await createMitmProxy(lanIp);
@@ -205,19 +205,34 @@ async function main() {
     const kill = await p.confirm({
       message: `Port ${PORT} is already in use. Kill the process and continue?`,
     });
-    if (p.isCancel(kill) || !kill) {
+    if (p.isCancel(kill)) {
       p.cancel("Cancelled.");
       process.exit(1);
     }
 
-    const { stdout } = await execFileAsync("lsof", ["-ti", `tcp:${PORT}`]).catch(() => ({ stdout: "" }));
-    const pids = stdout.trim().split("\n").filter(Boolean);
-    if (pids.length === 0) {
-      p.log.error(`Could not find process on port ${PORT}.`);
-      process.exit(1);
+    if (!kill) {
+      PORT = await new Promise<number>((resolve, reject) => {
+        const srv = net.createServer();
+        srv.once("error", reject);
+        srv.listen(0, () => {
+          const port = (srv.address() as net.AddressInfo).port;
+          srv.close(() => resolve(port));
+        });
+      });
+      lanUrl = lanIp ? `https://${lanIp}:${PORT}` : null;
+      loopbackUrl = `http://localhost:${PORT}`;
+      urls.lan = lanUrl;
+      p.log.info(`Using port ${PORT} instead.`);
+    } else {
+      const { stdout } = await execFileAsync("lsof", ["-ti", `tcp:${PORT}`]).catch(() => ({ stdout: "" }));
+      const pids = stdout.trim().split("\n").filter(Boolean);
+      if (pids.length === 0) {
+        p.log.error(`Could not find process on port ${PORT}.`);
+        process.exit(1);
+      }
+      await execFileAsync("kill", ["-9", ...pids]);
+      p.log.info(`Killed process on port ${PORT}, retrying…`);
     }
-    await execFileAsync("kill", ["-9", ...pids]);
-    p.log.info(`Killed process on port ${PORT}, retrying…`);
 
     await new Promise<void>((resolve, reject) => {
       detector.once("error", reject);

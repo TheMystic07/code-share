@@ -287,7 +287,6 @@ async function checkHealth(
   }, timeout);
 
   try {
-    p.log.info("abcd");
     const res = await apiFetch(`${serverUrl}/health`, {
       signal: controller.signal,
       ca: caPem,
@@ -890,9 +889,7 @@ if (args[0] === "--list" || args[0] === "-l") {
 
     const results = await Promise.all(
       saved.map(async (c) => {
-        p.log.info(c.sessionId ?? "");
         const resolved = await resolveActiveUrl(c);
-        p.log.info(`resolved = ${resolved.sessionId ?? "-"}`);
         return {
           conn: c,
           url: resolved.url,

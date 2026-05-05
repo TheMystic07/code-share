@@ -191,7 +191,34 @@ async function main() {
     },
   });
 
-  await new Promise<void>((resolve) => detector.listen(PORT, resolve));
+  await new Promise<void>((resolve, reject) => {
+    detector.once("error", reject);
+    detector.listen(PORT, resolve);
+  }).catch(async (err: NodeJS.ErrnoException) => {
+    if (err.code !== "EADDRINUSE") throw err;
+
+    const kill = await p.confirm({
+      message: `Port ${PORT} is already in use. Kill the process and continue?`,
+    });
+    if (p.isCancel(kill) || !kill) {
+      p.cancel("Cancelled.");
+      process.exit(1);
+    }
+
+    const { stdout } = await execFileAsync("lsof", ["-ti", `tcp:${PORT}`]).catch(() => ({ stdout: "" }));
+    const pids = stdout.trim().split("\n").filter(Boolean);
+    if (pids.length === 0) {
+      p.log.error(`Could not find process on port ${PORT}.`);
+      process.exit(1);
+    }
+    await execFileAsync("kill", ["-9", ...pids]);
+    p.log.info(`Killed process on port ${PORT}, retrying…`);
+
+    await new Promise<void>((resolve, reject) => {
+      detector.once("error", reject);
+      detector.listen(PORT, resolve);
+    });
+  });
   console.log(`Listening on port ${PORT}`);
 
   let tunnel: Awaited<ReturnType<typeof startTunnel>>;

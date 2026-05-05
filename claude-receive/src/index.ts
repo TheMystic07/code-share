@@ -34,9 +34,8 @@ interface ConnectionFile {
 interface SavedConnection {
   id: string;
   systemName: string;
-  serverUrl: string;
-  lanServerUrl?: string | null;
-  publicServerUrl?: string | null;
+  lanServerUrl: string | null;
+  publicServerUrl: string | null;
   sessionId: string;
   sharedUntil: string; // ISO-8601 — used to prune expired connections on startup
   caPem: string;
@@ -131,13 +130,9 @@ function pruneExpiredConnections(): void {
 
 function findConnectionByServerUrl(serverUrl: string): SavedConnection | null {
   const all = loadConnections().filter(
-    (c) =>
-      c.serverUrl === serverUrl ||
-      c.lanServerUrl === serverUrl ||
-      c.publicServerUrl === serverUrl,
+    (c) => c.lanServerUrl === serverUrl || c.publicServerUrl === serverUrl,
   );
   if (all.length === 0) return null;
-  // Most recently saved wins
   return all.sort(
     (a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime(),
   )[0];
@@ -225,46 +220,40 @@ async function apiFetch(
     body,
   } = opts;
 
-  // Combine caller signal + timeout into one signal
-  const timeoutSignal = timeout ? AbortSignal.timeout(timeout) : null;
-  const effectiveSignal =
-    signal && timeoutSignal
-      ? AbortSignal.any([signal, timeoutSignal])
-      : signal ?? timeoutSignal ?? undefined;
-
   if (url.startsWith("https:")) {
     return new Promise((resolve, reject) => {
-      if (effectiveSignal?.aborted) {
-        reject(effectiveSignal.reason);
-        return;
-      }
       const parsed = new URL(url);
-      const reqOpts: https.RequestOptions = {
-        hostname: parsed.hostname,
-        port: parseInt(parsed.port || "443", 10),
-        path: parsed.pathname + parsed.search,
-        method,
-        headers,
-        ca,
-        rejectUnauthorized,
-      };
-      const req = https.request(reqOpts, (res) => {
-        let data = "";
-        res.on("data", (chunk: string) => {
-          data += chunk;
-        });
-        res.on("end", () => {
-          const status = res.statusCode ?? 0;
-          resolve({
-            ok: status >= 200 && status < 300,
-            status,
-            json: () => Promise.resolve(JSON.parse(data)),
+      const req = https.request(
+        {
+          hostname: parsed.hostname,
+          port: parseInt(parsed.port || "443", 10),
+          path: parsed.pathname + parsed.search,
+          method,
+          headers,
+          ca,
+          rejectUnauthorized,
+        },
+        (res) => {
+          let data = "";
+          res.on("data", (chunk: string) => {
+            data += chunk;
           });
-        });
-        res.on("error", reject);
-      });
-      effectiveSignal?.addEventListener("abort", () =>
-        req.destroy(effectiveSignal.reason),
+          res.on("end", () => {
+            const status = res.statusCode ?? 0;
+            resolve({
+              ok: status >= 200 && status < 300,
+              status,
+              json: () => Promise.resolve(JSON.parse(data)),
+            });
+          });
+          res.on("error", reject);
+        },
+      );
+      req.setTimeout(timeout, () =>
+        req.destroy(new Error("Request timed out")),
+      );
+      signal?.addEventListener("abort", () =>
+        req.destroy(new Error("Aborted")),
       );
       req.on("error", reject);
       if (body) req.write(body);
@@ -273,12 +262,10 @@ async function apiFetch(
   }
 
   // HTTP — use native fetch
-  const res = await fetch(url, {
-    method,
-    headers,
-    body,
-    signal: effectiveSignal,
-  });
+  const fetchSignal = signal
+    ? AbortSignal.any([signal, AbortSignal.timeout(timeout)])
+    : AbortSignal.timeout(timeout);
+  const res = await fetch(url, { method, headers, body, signal: fetchSignal });
   return { ok: res.ok, status: res.status, json: () => res.json() };
 }
 
@@ -295,13 +282,17 @@ async function checkHealth(
   timeout = 2000,
 ): Promise<HealthResult> {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeout);
+  const timeoutId = setTimeout(() => {
+    controller.abort();
+  }, timeout);
 
   try {
+    p.log.info("abcd");
     const res = await apiFetch(`${serverUrl}/health`, {
       signal: controller.signal,
       ca: caPem,
     });
+
     const body = (await res.json()) as {
       ok: boolean;
       sessionActive: boolean;
@@ -318,23 +309,47 @@ async function checkHealth(
   }
 }
 
-// Try LAN first (fast timeout), fall back to public URL, then canonical serverUrl.
-async function resolveActiveUrl(
-  conn: SavedConnection,
-): Promise<{ url: string; alive: boolean; sessionId: string | null }> {
-  const candidates: Array<{ url: string; timeout: number }> = [];
-  if (conn.lanServerUrl)
-    candidates.push({ url: conn.lanServerUrl, timeout: 1000 });
-  if (conn.publicServerUrl)
-    candidates.push({ url: conn.publicServerUrl, timeout: 2000 });
-  if (!candidates.find((c) => c.url === conn.serverUrl))
-    candidates.push({ url: conn.serverUrl, timeout: 2000 });
+interface ResolvedUrl {
+  url: string;
+  alive: boolean;
+  sessionId: string | null;
+}
 
-  for (const { url, timeout } of candidates) {
-    const h = await checkHealth(url, conn.caPem, timeout);
-    if (h.alive) return { url, alive: true, sessionId: h.sessionId };
-  }
-  return { url: conn.serverUrl, alive: false, sessionId: null };
+function resolveActiveUrl(conn: SavedConnection): Promise<ResolvedUrl> {
+  const candidates: Array<{ url: string; timeout: number }> = [
+    conn.lanServerUrl && { url: conn.lanServerUrl, timeout: 1000 },
+    conn.publicServerUrl && { url: conn.publicServerUrl, timeout: 2000 },
+  ].filter(Boolean) as Array<{ url: string; timeout: number }>;
+
+  return new Promise((resolve) => {
+    if (candidates.length === 0) {
+      resolve({ url: "", alive: false, sessionId: null });
+      return;
+    }
+
+    // Force Timeout in 3 seconds (fetch timeout dont work for LAN)
+    const timer = setTimeout(() => {
+      resolve({ url: candidates[0].url, alive: false, sessionId: null });
+    }, 3000);
+
+    const race = candidates.map(({ url, timeout }) =>
+      checkHealth(url, conn.caPem, timeout).then((h) =>
+        h.alive
+          ? { url, alive: true as const, sessionId: h.sessionId }
+          : Promise.reject(),
+      ),
+    );
+
+    Promise.any(race)
+      .then((winner) => {
+        clearTimeout(timer);
+        resolve(winner);
+      })
+      .catch(() => {
+        clearTimeout(timer);
+        resolve({ url: candidates[0].url, alive: false, sessionId: null });
+      });
+  });
 }
 
 // ── Pair flow ────────────────────────────────────────────────────────────────
@@ -435,7 +450,6 @@ async function pairFlow(
   const saved: SavedConnection = {
     id: connectionId,
     systemName: file.systemName ?? new URL(serverUrl).hostname,
-    serverUrl,
     lanServerUrl: file.lanServerUrl,
     publicServerUrl: file.publicServerUrl,
     sessionId: file.sessionId,
@@ -483,7 +497,7 @@ async function reconnectFlow(uuid?: string, claudeArgs: string[] = []) {
       message: "Choose a connection:",
       options: connections.map((c) => ({
         value: c.id,
-        label: `${c.systemName} — ${c.serverUrl}`,
+        label: `${c.systemName} — ${c.lanServerUrl ?? c.publicServerUrl ?? ""}`,
         hint: `saved ${new Date(c.savedAt).toLocaleDateString()}`,
       })),
     });
@@ -671,7 +685,7 @@ async function sessionPost(
 async function launchClaude(
   proxyUrl: string,
   caPem: string,
-  meta: { systemName: string; id: string; serverUrl: string },
+  meta: { systemName: string; id: string },
   claudeArgs: string[] = [],
   sharerAccount: SharerAccount | null = null,
 ) {
@@ -697,7 +711,7 @@ async function launchClaude(
   let sessionId: string | null = null;
   try {
     const res = await sessionPost(
-      meta.serverUrl,
+      proxyUrl,
       "/session/start",
       { machineId: meta.id },
       caPem,
@@ -715,7 +729,7 @@ async function launchClaude(
   const heartbeat = sessionId
     ? setInterval(() => {
         void sessionPost(
-          meta.serverUrl,
+          proxyUrl,
           "/session/heartbeat",
           {
             machineId: meta.id,
@@ -756,7 +770,7 @@ async function launchClaude(
     if (heartbeat) clearInterval(heartbeat);
     if (sessionId) {
       await sessionPost(
-        meta.serverUrl,
+        proxyUrl,
         "/session/end",
         {
           machineId: meta.id,
@@ -787,7 +801,7 @@ async function launchClaude(
     if (heartbeat) clearInterval(heartbeat);
     if (sessionId) {
       void sessionPost(
-        meta.serverUrl,
+        proxyUrl,
         "/session/end",
         {
           machineId: meta.id,
@@ -873,9 +887,12 @@ if (args[0] === "--list" || args[0] === "-l") {
   if (saved.length > 0) {
     const spin = p.spinner();
     spin.start("Checking active sharers...");
+
     const results = await Promise.all(
       saved.map(async (c) => {
+        p.log.info(c.sessionId ?? "");
         const resolved = await resolveActiveUrl(c);
+        p.log.info(`resolved = ${resolved.sessionId ?? "-"}`);
         return {
           conn: c,
           url: resolved.url,

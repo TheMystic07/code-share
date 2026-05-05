@@ -248,11 +248,12 @@ export function App({
           ) : (
             [...selectedMachine.sessions.values()]
               .sort(
-                (a, b) => b.lastActiveAt.getTime() - a.lastActiveAt.getTime(),
+                (a, b) => a.startedAt.getTime() - b.startedAt.getTime(),
               )
-              .map((s) => (
+              .map((s, i) => (
                 <Box key={s.id} gap={2}>
                   <Text color={s.active ? "green" : "gray"}>●</Text>
+                  <Text dimColor>#{i + 1}</Text>
                   <Text dimColor>{s.id.slice(0, 8)}</Text>
                   <Text dimColor>{formatRelative(s.lastActiveAt)}</Text>
                 </Box>

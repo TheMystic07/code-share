@@ -276,7 +276,7 @@ async function checkHealth(
 ): Promise<HealthResult> {
   try {
     const res = await apiFetch(`${serverUrl}/health`, {
-      timeout: 5000,
+      timeout: 2000,
       ca: caPem,
     });
     const body = (await res.json()) as {

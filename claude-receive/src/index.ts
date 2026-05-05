@@ -785,13 +785,11 @@ if (args[0] === "--list" || args[0] === "-l") {
         claudeArgs,
         existing.sharerAccount ?? null,
       );
-    } else if (!health.alive) {
-      p.log.error(
-        "Sharer is offline or the session has expired. Ask the sharer for a new connect URL.",
-      );
-      process.exit(1);
     } else {
-      // Sharer restarted (new sessionId) — must pair fresh
+      // Session changed, server restarted, or TLS cert rotated (sharer restart generates
+      // a new CA, so the old caPem fails verification and health returns alive=false).
+      // The user provided an explicit new URL, so always attempt fresh pairing — if the
+      // sharer is truly offline, pairFlow will fail with a network error naturally.
       await pairFlow(parsed, claudeArgs);
     }
   } else {

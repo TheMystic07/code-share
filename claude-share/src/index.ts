@@ -122,9 +122,6 @@ async function main() {
     portFlag != null && !isNaN(portFlag)
       ? portFlag
       : parseInt(process.env.PORT ?? String(DEFAULT_PORT), 10);
-  // Internal port for the Hono API server — not exposed externally
-  const API_PORT = PORT + 1;
-
   const lanIp = getLanIp();
   const lanUrl = lanIp ? `https://${lanIp}:${PORT}` : null;
   const loopbackUrl = `http://localhost:${PORT}`;
@@ -138,8 +135,16 @@ async function main() {
   const sharerAccount = readSharerAccount();
   const systemName = await getSystemName();
 
-  // Hono API on a localhost-only port; port detector pipes plain HTTP to it
+  // Hono API on a random localhost-only port — not exposed externally
   const apiApp = createApiApp(urls, mitmProxy.caCertPem, sharerAccount, systemName);
+  const API_PORT = await new Promise<number>((resolve, reject) => {
+    const srv = net.createServer();
+    srv.once("error", reject);
+    srv.listen(0, "127.0.0.1", () => {
+      const port = (srv.address() as net.AddressInfo).port;
+      srv.close(() => resolve(port));
+    });
+  });
   const honoServer = serve({
     fetch: apiApp.fetch,
     port: API_PORT,

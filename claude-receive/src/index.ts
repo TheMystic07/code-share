@@ -35,6 +35,8 @@ interface SavedConnection {
   id: string;
   systemName: string;
   serverUrl: string;
+  lanServerUrl?: string | null;
+  publicServerUrl?: string | null;
   sessionId: string;
   sharedUntil: string; // ISO-8601 — used to prune expired connections on startup
   caPem: string;
@@ -128,7 +130,12 @@ function pruneExpiredConnections(): void {
 }
 
 function findConnectionByServerUrl(serverUrl: string): SavedConnection | null {
-  const all = loadConnections().filter((c) => c.serverUrl === serverUrl);
+  const all = loadConnections().filter(
+    (c) =>
+      c.serverUrl === serverUrl ||
+      c.lanServerUrl === serverUrl ||
+      c.publicServerUrl === serverUrl,
+  );
   if (all.length === 0) return null;
   // Most recently saved wins
   return all.sort(
@@ -273,10 +280,11 @@ interface HealthResult {
 async function checkHealth(
   serverUrl: string,
   caPem?: string,
+  timeout = 2000,
 ): Promise<HealthResult> {
   try {
     const res = await apiFetch(`${serverUrl}/health`, {
-      timeout: 2000,
+      timeout,
       ca: caPem,
     });
     const body = (await res.json()) as {
@@ -291,6 +299,23 @@ async function checkHealth(
   } catch {
     return { alive: false, sessionId: null };
   }
+}
+
+// Try LAN first (fast timeout), fall back to public URL, then canonical serverUrl.
+async function resolveActiveUrl(
+  conn: SavedConnection,
+): Promise<{ url: string; alive: boolean; sessionId: string | null }> {
+  const candidates: Array<{ url: string; timeout: number }> = [];
+  if (conn.lanServerUrl) candidates.push({ url: conn.lanServerUrl, timeout: 1000 });
+  if (conn.publicServerUrl) candidates.push({ url: conn.publicServerUrl, timeout: 2000 });
+  if (!candidates.find((c) => c.url === conn.serverUrl))
+    candidates.push({ url: conn.serverUrl, timeout: 2000 });
+
+  for (const { url, timeout } of candidates) {
+    const h = await checkHealth(url, conn.caPem, timeout);
+    if (h.alive) return { url, alive: true, sessionId: h.sessionId };
+  }
+  return { url: conn.serverUrl, alive: false, sessionId: null };
 }
 
 // ── Pair flow ────────────────────────────────────────────────────────────────
@@ -392,6 +417,8 @@ async function pairFlow(
     id: connectionId,
     systemName: file.systemName ?? new URL(serverUrl).hostname,
     serverUrl,
+    lanServerUrl: file.lanServerUrl,
+    publicServerUrl: file.publicServerUrl,
     sessionId: file.sessionId,
     sharedUntil: file.sharedUntil,
     caPem: file.caPem,
@@ -449,16 +476,16 @@ async function reconnectFlow(uuid?: string, claudeArgs: string[] = []) {
   }
 
   const spin = p.spinner();
-  spin.start(`Checking ${chosen.serverUrl}...`);
-  const { alive } = await checkHealth(chosen.serverUrl, chosen.caPem);
-  if (!alive) {
+  spin.start(`Checking ${chosen.systemName}...`);
+  const resolved = await resolveActiveUrl(chosen);
+  if (!resolved.alive) {
     spin.stop("Server offline or session expired.");
     process.exit(1);
   }
   spin.stop("Server is alive.");
 
   await launchClaude(
-    chosen.serverUrl,
+    resolved.url,
     chosen.caPem,
     chosen,
     claudeArgs,
@@ -477,11 +504,11 @@ async function listFlow() {
 
   console.log("\nSaved connections:\n");
   for (const c of connections) {
-    const { alive } = await checkHealth(c.serverUrl, c.caPem);
+    const { alive, url } = await resolveActiveUrl(c);
     const status = alive
       ? "\x1b[32m● online\x1b[0m"
       : "\x1b[90m○ offline\x1b[0m";
-    console.log(`  ${status}  ${c.systemName}  ${c.serverUrl}`);
+    console.log(`  ${status}  ${c.systemName}  ${url}`);
     console.log(`           id: ${c.id}`);
     console.log(`           saved: ${new Date(c.savedAt).toLocaleString()}\n`);
   }
@@ -798,13 +825,13 @@ if (args[0] === "--list" || args[0] === "-l") {
   // Check if we already have credentials for this sharer
   const existing = findConnectionByServerUrl(parsed.serverUrl);
   if (existing) {
-    const health = await checkHealth(existing.serverUrl, existing.caPem);
-    if (health.alive && health.sessionId === existing.sessionId) {
+    const resolved = await resolveActiveUrl(existing);
+    if (resolved.alive && resolved.sessionId === existing.sessionId) {
       // Same session still running — skip pairing entirely
       p.intro("claude-receive");
       p.log.info(`Resuming existing connection for ${existing.systemName}`);
       await launchClaude(
-        existing.serverUrl,
+        resolved.url,
         existing.caPem,
         existing,
         claudeArgs,
@@ -829,29 +856,27 @@ if (args[0] === "--list" || args[0] === "-l") {
     spin.start("Checking active sharers...");
     const results = await Promise.all(
       saved.map(async (c) => {
-        const health = await checkHealth(c.serverUrl, c.caPem);
+        const resolved = await resolveActiveUrl(c);
         return {
           conn: c,
-          alive: health.alive && health.sessionId === c.sessionId,
+          url: resolved.url,
+          alive: resolved.alive && resolved.sessionId === c.sessionId,
         };
       }),
     );
     spin.stop();
 
-    // DONT-REMOVE -> its for debugging old connection not showing issue
-    p.log.info(JSON.stringify(results.map((r) => r.alive)));
-
-    const active = results.filter((r) => r.alive).map((r) => r.conn);
+    const active = results.filter((r) => r.alive);
 
     if (active.length > 0) {
       p.intro("claude-receive");
       const pick = await p.select({
         message: "Connect to an active sharer or pair with a new one:",
         options: [
-          ...active.map((c) => ({
-            value: c.id,
-            label: c.systemName,
-            hint: c.serverUrl,
+          ...active.map((r) => ({
+            value: r.conn.id,
+            label: r.conn.systemName,
+            hint: r.url,
           })),
           {
             value: "__new__",
@@ -867,13 +892,13 @@ if (args[0] === "--list" || args[0] === "-l") {
       if (pick === "__new__") {
         await pairFlow(undefined, claudeArgs);
       } else {
-        const chosen = active.find((c) => c.id === pick)!;
+        const chosen = active.find((r) => r.conn.id === pick)!;
         await launchClaude(
-          chosen.serverUrl,
-          chosen.caPem,
-          chosen,
+          chosen.url,
+          chosen.conn.caPem,
+          chosen.conn,
           claudeArgs,
-          chosen.sharerAccount ?? null,
+          chosen.conn.sharerAccount ?? null,
         );
       }
     } else {

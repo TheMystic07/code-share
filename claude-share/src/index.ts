@@ -1,9 +1,13 @@
 #!/usr/bin/env node
+import { execFile } from "node:child_process";
 import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import tls from "node:tls";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
 
 import * as p from "@clack/prompts";
 import { serve } from "@hono/node-server";
@@ -43,6 +47,19 @@ function readSharerAccount(): SharerAccount | null {
     };
   } catch {
     return null;
+  }
+}
+
+async function getSystemName(): Promise<string> {
+  try {
+    if (process.platform === "darwin") {
+      const { stdout } = await execFileAsync("scutil", ["--get", "ComputerName"]);
+      return stdout.trim();
+    }
+    const { stdout } = await execFileAsync("hostname");
+    return stdout.trim();
+  } catch {
+    return os.hostname();
   }
 }
 
@@ -119,9 +136,10 @@ async function main() {
   // Mutable — publicUrl is filled in after the tunnel starts
   const urls = { public: null as string | null, lan: lanUrl };
   const sharerAccount = readSharerAccount();
+  const systemName = await getSystemName();
 
   // Hono API on a localhost-only port; port detector pipes plain HTTP to it
-  const apiApp = createApiApp(urls, mitmProxy.caCertPem, sharerAccount);
+  const apiApp = createApiApp(urls, mitmProxy.caCertPem, sharerAccount, systemName);
   const honoServer = serve({
     fetch: apiApp.fetch,
     port: API_PORT,

@@ -28,11 +28,12 @@ interface ConnectionFile {
   sharedUntil: string; // ISO-8601
   caPem: string;
   sharerAccount: SharerAccount | null;
+  systemName?: string;
 }
 
 interface SavedConnection {
   id: string;
-  name: string;
+  systemName: string;
   serverUrl: string;
   sessionId: string;
   sharedUntil: string; // ISO-8601 — used to prune expired connections on startup
@@ -73,26 +74,10 @@ function writeConfig(config: ReceiverConfig): void {
   });
 }
 
-async function getDeviceName(): Promise<string> {
+function getDeviceName(): string {
   const saved = readConfig();
   if (saved?.deviceName) return saved.deviceName;
-
-  let name: string;
-  try {
-    if (process.platform === "darwin") {
-      const { stdout } = await execFileAsync("scutil", [
-        "--get",
-        "ComputerName",
-      ]);
-      name = stdout.trim();
-    } else {
-      const { stdout } = await execFileAsync("hostname");
-      name = stdout.trim();
-    }
-  } catch {
-    name = os.hostname();
-  }
-
+  const name = os.hostname();
   writeConfig({ deviceName: name });
   return name;
 }
@@ -331,7 +316,7 @@ async function pairFlow(
     }
   }
 
-  const name = await getDeviceName();
+  const name = getDeviceName();
   p.log.info(`Connecting as "${name}"`);
 
   const spin = p.spinner();
@@ -384,7 +369,7 @@ async function pairFlow(
   ensureConnectionsDir();
   const saved: SavedConnection = {
     id: connectionId,
-    name: name as string,
+    systemName: file.systemName ?? new URL(serverUrl).hostname,
     serverUrl,
     sessionId: file.sessionId,
     sharedUntil: file.sharedUntil,
@@ -431,7 +416,7 @@ async function reconnectFlow(uuid?: string, claudeArgs: string[] = []) {
       message: "Choose a connection:",
       options: connections.map((c) => ({
         value: c.id,
-        label: `${c.name} — ${c.serverUrl}`,
+        label: `${c.systemName} — ${c.serverUrl}`,
         hint: `saved ${new Date(c.savedAt).toLocaleDateString()}`,
       })),
     });
@@ -475,7 +460,7 @@ async function listFlow() {
     const status = alive
       ? "\x1b[32m● online\x1b[0m"
       : "\x1b[90m○ offline\x1b[0m";
-    console.log(`  ${status}  ${c.name}  ${c.serverUrl}`);
+    console.log(`  ${status}  ${c.systemName}  ${c.serverUrl}`);
     console.log(`           id: ${c.id}`);
     console.log(`           saved: ${new Date(c.savedAt).toLocaleString()}\n`);
   }
@@ -620,7 +605,7 @@ async function sessionPost(
 async function launchClaude(
   proxyUrl: string,
   caPem: string,
-  meta: { name: string; id: string; serverUrl: string },
+  meta: { systemName: string; id: string; serverUrl: string },
   claudeArgs: string[] = [],
   sharerAccount: SharerAccount | null = null,
 ) {
@@ -666,7 +651,7 @@ async function launchClaude(
     : null;
 
   p.log.success(
-    `Launching Claude as ${meta.name}. All API calls proxied through sharer.`,
+    `Launching Claude via ${meta.systemName}. All API calls proxied through sharer.`,
   );
   p.log.info(`Proxy: ${proxyUrl}`);
   if (claudeArgs.length > 0) p.log.info(`Extra args: ${claudeArgs.join(" ")}`);
@@ -777,7 +762,7 @@ if (args[0] === "--list" || args[0] === "-l") {
     if (health.alive && health.sessionId === existing.sessionId) {
       // Same session still running — skip pairing entirely
       p.intro("claude-receive");
-      p.log.info(`Resuming existing connection for ${existing.name}`);
+      p.log.info(`Resuming existing connection for ${existing.systemName}`);
       await launchClaude(
         existing.serverUrl,
         existing.caPem,
@@ -822,7 +807,7 @@ if (args[0] === "--list" || args[0] === "-l") {
         options: [
           ...active.map((c) => ({
             value: c.id,
-            label: c.name,
+            label: c.systemName,
             hint: c.serverUrl,
           })),
           {

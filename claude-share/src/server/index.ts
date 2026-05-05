@@ -18,7 +18,7 @@ interface Urls {
   lan: string | null;
 }
 
-export function createApiApp(urls: Urls, caPem: string, sharerAccount: SharerAccount | null): Hono {
+export function createApiApp(urls: Urls, caPem: string, sharerAccount: SharerAccount | null, systemName: string): Hono {
   const app = new Hono();
 
   app.get("/health", (c) => {
@@ -51,6 +51,7 @@ export function createApiApp(urls: Urls, caPem: string, sharerAccount: SharerAcc
       sharedUntil: session.sharedUntil.toISOString(),
       caPem,
       sharerAccount,
+      systemName,
     };
 
     const blob = encryptConnectionFile(session, file);

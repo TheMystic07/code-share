@@ -53,6 +53,7 @@ export interface ConnectionFile {
   sharedUntil: string; // ISO-8601
   caPem: string;
   sharerAccount: SharerAccount | null;
+  systemName: string;
 }
 
 export interface Session {

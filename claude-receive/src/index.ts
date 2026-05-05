@@ -11,6 +11,7 @@ import path from "node:path";
 import * as p from "@clack/prompts";
 import { xchacha20poly1305 } from "@noble/ciphers/chacha.js";
 
+import { cache } from "./cache.js";
 import { logger } from "./logger.js";
 
 // ── Types shared with claude-share ──────────────────────────────────────────
@@ -232,6 +233,9 @@ async function apiFetch(
           headers,
           ca,
           rejectUnauthorized,
+
+          // this is important: node fails to derive servername automatically when dealing with IP based URLs
+          servername: parsed.hostname,
         },
         (res) => {
           let data = "";
@@ -301,7 +305,8 @@ async function checkHealth(
       alive: body.ok && body.sessionActive,
       sessionId: body.sessionId ?? null,
     };
-  } catch {
+  } catch (err) {
+    p.log.error(JSON.stringify(err));
     return { alive: false, sessionId: null };
   } finally {
     clearTimeout(timeoutId);
@@ -314,41 +319,47 @@ interface ResolvedUrl {
   sessionId: string | null;
 }
 
-function resolveActiveUrl(conn: SavedConnection): Promise<ResolvedUrl> {
-  const candidates: Array<{ url: string; timeout: number }> = [
-    conn.lanServerUrl && { url: conn.lanServerUrl, timeout: 1000 },
-    conn.publicServerUrl && { url: conn.publicServerUrl, timeout: 2000 },
-  ].filter(Boolean) as Array<{ url: string; timeout: number }>;
+async function resolveActiveUrl(conn: SavedConnection): Promise<ResolvedUrl> {
+  const cacheKey = `resolvedUrl:${conn.id}`;
+  const cached = cache.get<ResolvedUrl>(cacheKey);
+  if (cached) return cached;
 
-  return new Promise((resolve) => {
-    if (candidates.length === 0) {
-      resolve({ url: "", alive: false, sessionId: null });
-      return;
-    }
+  const candidates: Array<{ url: string; timeout: number }> = [];
 
-    // Force Timeout in 3 seconds (fetch timeout dont work for LAN)
-    const timer = setTimeout(() => {
-      resolve({ url: candidates[0].url, alive: false, sessionId: null });
-    }, 3000);
+  if (conn.lanServerUrl) {
+    candidates.push({ url: conn.lanServerUrl, timeout: 1000 });
+  }
 
-    const race = candidates.map(({ url, timeout }) =>
-      checkHealth(url, conn.caPem, timeout).then((h) =>
-        h.alive
-          ? { url, alive: true as const, sessionId: h.sessionId }
-          : Promise.reject(),
-      ),
-    );
+  // if (conn.publicServerUrl) {
+  //   candidates.push({ url: conn.publicServerUrl, timeout: 2000 });
+  // }
 
-    Promise.any(race)
-      .then((winner) => {
-        clearTimeout(timer);
-        resolve(winner);
-      })
-      .catch(() => {
-        clearTimeout(timer);
-        resolve({ url: candidates[0].url, alive: false, sessionId: null });
-      });
+  const fallback: ResolvedUrl = {
+    url: candidates[0]?.url ?? "",
+    alive: false,
+    sessionId: null,
+  };
+
+  if (candidates.length === 0) return fallback;
+
+  const overallTimeout = new Promise<ResolvedUrl>((resolve) =>
+    setTimeout(() => resolve(fallback), 3_000),
+  );
+
+  const race = Promise.any(
+    candidates.map(async ({ url, timeout }) => {
+      const h = await checkHealth(url, conn.caPem, timeout);
+      if (!h.alive) throw new Error("not alive");
+      return { url, alive: true as const, sessionId: h.sessionId };
+    }),
+  ).catch((err) => {
+    // p.log.error(err);
+    return fallback;
   });
+
+  const result = await Promise.race([race, overallTimeout]);
+  if (result.alive) cache.set(cacheKey, result, 30_000);
+  return result;
 }
 
 // ── Pair flow ────────────────────────────────────────────────────────────────
@@ -887,16 +898,16 @@ if (args[0] === "--list" || args[0] === "-l") {
     const spin = p.spinner();
     spin.start("Checking active sharers...");
 
-    const results = await Promise.all(
-      saved.map(async (c) => {
-        const resolved = await resolveActiveUrl(c);
-        return {
-          conn: c,
-          url: resolved.url,
-          alive: resolved.alive && resolved.sessionId === c.sessionId,
-        };
-      }),
-    );
+    const t = saved.map(async (c) => {
+      return resolveActiveUrl(c).then((resolved) => ({
+        conn: c,
+        url: resolved.url,
+        alive: resolved.alive && resolved.sessionId === c.sessionId,
+      }));
+    });
+
+    const results = await Promise.all(t);
+
     spin.stop();
 
     const active = results.filter((r) => r.alive);

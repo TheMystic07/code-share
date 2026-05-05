@@ -198,6 +198,7 @@ interface ApiFetchOptions {
   headers?: Record<string, string>;
   body?: string;
   timeout?: number;
+  signal?: AbortSignal;
   /** CA cert PEM — enables TLS verification for HTTPS requests */
   ca?: string;
   /** Skip TLS verification entirely (safe for the first /pair call since the response is E2E encrypted) */
@@ -218,13 +219,25 @@ async function apiFetch(
     ca,
     rejectUnauthorized = true,
     timeout = 10_000,
+    signal,
     method = "GET",
     headers = {},
     body,
   } = opts;
 
+  // Combine caller signal + timeout into one signal
+  const timeoutSignal = timeout ? AbortSignal.timeout(timeout) : null;
+  const effectiveSignal =
+    signal && timeoutSignal
+      ? AbortSignal.any([signal, timeoutSignal])
+      : signal ?? timeoutSignal ?? undefined;
+
   if (url.startsWith("https:")) {
     return new Promise((resolve, reject) => {
+      if (effectiveSignal?.aborted) {
+        reject(effectiveSignal.reason);
+        return;
+      }
       const parsed = new URL(url);
       const reqOpts: https.RequestOptions = {
         hostname: parsed.hostname,
@@ -250,10 +263,9 @@ async function apiFetch(
         });
         res.on("error", reject);
       });
-      if (timeout)
-        req.setTimeout(timeout, () =>
-          req.destroy(new Error("Request timed out")),
-        );
+      effectiveSignal?.addEventListener("abort", () =>
+        req.destroy(effectiveSignal.reason),
+      );
       req.on("error", reject);
       if (body) req.write(body);
       req.end();
@@ -265,7 +277,7 @@ async function apiFetch(
     method,
     headers,
     body,
-    signal: AbortSignal.timeout(timeout),
+    signal: effectiveSignal,
   });
   return { ok: res.ok, status: res.status, json: () => res.json() };
 }
@@ -282,9 +294,12 @@ async function checkHealth(
   caPem?: string,
   timeout = 2000,
 ): Promise<HealthResult> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeout);
+
   try {
     const res = await apiFetch(`${serverUrl}/health`, {
-      timeout,
+      signal: controller.signal,
       ca: caPem,
     });
     const body = (await res.json()) as {
@@ -298,6 +313,8 @@ async function checkHealth(
     };
   } catch {
     return { alive: false, sessionId: null };
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
@@ -306,8 +323,10 @@ async function resolveActiveUrl(
   conn: SavedConnection,
 ): Promise<{ url: string; alive: boolean; sessionId: string | null }> {
   const candidates: Array<{ url: string; timeout: number }> = [];
-  if (conn.lanServerUrl) candidates.push({ url: conn.lanServerUrl, timeout: 1000 });
-  if (conn.publicServerUrl) candidates.push({ url: conn.publicServerUrl, timeout: 2000 });
+  if (conn.lanServerUrl)
+    candidates.push({ url: conn.lanServerUrl, timeout: 1000 });
+  if (conn.publicServerUrl)
+    candidates.push({ url: conn.publicServerUrl, timeout: 2000 });
   if (!candidates.find((c) => c.url === conn.serverUrl))
     candidates.push({ url: conn.serverUrl, timeout: 2000 });
 

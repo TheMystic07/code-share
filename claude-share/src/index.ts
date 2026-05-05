@@ -3,6 +3,7 @@ import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
+import tls from "node:tls";
 
 import * as p from "@clack/prompts";
 import { serve } from "@hono/node-server";
@@ -108,11 +109,11 @@ async function main() {
   const API_PORT = PORT + 1;
 
   const lanIp = getLanIp();
-  const lanUrl = lanIp ? `http://${lanIp}:${PORT}` : null;
+  const lanUrl = lanIp ? `https://${lanIp}:${PORT}` : null;
   const loopbackUrl = `http://localhost:${PORT}`;
 
   // MITM proxy resolves only after its RSA CA is ready (no race on CONNECT)
-  const mitmProxy = await createMitmProxy();
+  const mitmProxy = await createMitmProxy(lanIp);
   console.log("MITM proxy ready.");
 
   // Mutable — publicUrl is filled in after the tunnel starts
@@ -127,9 +128,42 @@ async function main() {
     hostname: "127.0.0.1",
   });
 
-  // Single public port: CONNECT → MITM proxy, plain HTTP → Hono API
+  // Internal TLS termination server: accepts raw TLS bytes from the detector,
+  // does the handshake, then forwards plaintext HTTP to the Hono API port.
+  // Using tls.createServer (full server lifecycle) instead of tls.TLSSocket
+  // wrapping, which is not reliably supported in Bun.
+  const tlsTermServer = tls.createServer(
+    { cert: mitmProxy.serverCert.certPem, key: mitmProxy.serverCert.keyPem },
+    (tlsSocket) => {
+      const upstream = net.connect(API_PORT, "127.0.0.1");
+      tlsSocket.pipe(upstream);
+      upstream.pipe(tlsSocket);
+      tlsSocket.on("error", (err) => {
+        if ((err as NodeJS.ErrnoException).code !== "ECONNRESET") {
+          console.error("[tls] terminator error:", err.message);
+        }
+        upstream.destroy();
+      });
+      upstream.on("error", () => tlsSocket.destroy());
+    },
+  );
+  const TLS_TERM_PORT = await new Promise<number>((resolve, reject) => {
+    tlsTermServer.once("error", reject);
+    tlsTermServer.listen(0, "127.0.0.1", () => {
+      resolve((tlsTermServer.address() as net.AddressInfo).port);
+    });
+  });
+
+  // Single public port: CONNECT → MITM proxy, TLS ClientHello → TLS terminator, plain HTTP → Hono API
   const detector = createPortDetector({
     onConnect: (socket) => mitmProxy.handleSocket(socket),
+    onTls: (socket) => {
+      const upstream = net.connect(TLS_TERM_PORT, "127.0.0.1");
+      socket.pipe(upstream);
+      upstream.pipe(socket);
+      socket.on("error", () => upstream.destroy());
+      upstream.on("error", () => socket.destroy());
+    },
     onHttp: (socket) => {
       const upstream = net.connect(API_PORT, "127.0.0.1");
       socket.pipe(upstream);
@@ -177,6 +211,7 @@ async function main() {
     mitmProxy.close();
     tunnel.close();
     detector.close();
+    tlsTermServer.close();
     (honoServer as any).close?.();
     stopTokenRefresh();
     destroySession();

@@ -5,6 +5,7 @@ import path from "node:path";
 
 import { Proxy } from "http-mitm-proxy";
 
+import { generateServerCert, type ServerCert } from "../ca/serverCert.js";
 import { logger } from "../logger.js";
 import { getSession } from "../session/manager.js";
 import { writeDevLog, truncate, LOG_FILE, type DevLogEntry } from "./devLogger.js";
@@ -68,6 +69,8 @@ export interface MitmProxy {
   handleSocket(socket: net.Socket): void;
   /** PEM of the CA cert that signs intercepted TLS connections */
   caCertPem: string;
+  /** TLS server cert for the API port, signed by the MITM CA */
+  serverCert: ServerCert;
   close(): void;
 }
 
@@ -75,7 +78,7 @@ export interface MitmProxy {
  * Starts the MITM proxy on a random localhost port.
  * Resolves only after the RSA CA is ready so CONNECT handling never races.
  */
-export async function createMitmProxy(connectionId?: string): Promise<MitmProxy> {
+export async function createMitmProxy(lanIp: string | null = null): Promise<MitmProxy> {
   const sslCaDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "claude-share-mitm-"));
 
   return new Promise<MitmProxy>((resolve, reject) => {
@@ -233,16 +236,20 @@ export async function createMitmProxy(connectionId?: string): Promise<MitmProxy>
     // Listen on a random localhost port — CA generation completes before callback fires
     proxy.listen({ port: 0, host: "127.0.0.1", sslCaDir }, (err?: Error | null) => {
       if (err) return reject(err);
-      try {
+
+      (async () => {
         proxyPort = (proxy as any).httpServer.address().port;
         proxyReady = true;
         const caCertPem = fs.readFileSync(path.join(sslCaDir, "certs", "ca.pem"), "utf8");
+        const caKeyPem = fs.readFileSync(path.join(sslCaDir, "keys", "ca.private.key"), "utf8");
+        const serverCert = await generateServerCert(caCertPem, caKeyPem, lanIp);
 
         for (const s of pendingSockets) pipeToProxy(s);
         pendingSockets.length = 0;
 
         resolve({
           caCertPem,
+          serverCert,
           handleSocket(socket) {
             if (proxyReady) {
               pipeToProxy(socket);
@@ -255,9 +262,7 @@ export async function createMitmProxy(connectionId?: string): Promise<MitmProxy>
             fs.rm(sslCaDir, { recursive: true, force: true }, () => {});
           },
         });
-      } catch (readErr) {
-        reject(readErr);
-      }
+      })().catch(reject);
     });
 
     function pipeToProxy(socket: net.Socket) {

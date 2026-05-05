@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { spawn, execFile } from "node:child_process";
+import https from "node:https";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
@@ -196,6 +197,72 @@ function parseConnectUrl(
   return { serverUrl: match[1], pairingCode: match[2] };
 }
 
+// ── HTTPS-aware fetch helper ─────────────────────────────────────────────────
+// Native fetch can't be given a custom CA cert, so we use node:https for HTTPS
+// URLs (once the CA cert is known) and fall back to native fetch for HTTP.
+
+interface ApiFetchOptions {
+  method?: string;
+  headers?: Record<string, string>;
+  body?: string;
+  timeout?: number;
+  /** CA cert PEM — enables TLS verification for HTTPS requests */
+  ca?: string;
+  /** Skip TLS verification entirely (safe for the first /pair call since the response is E2E encrypted) */
+  rejectUnauthorized?: boolean;
+}
+
+interface ApiFetchResponse {
+  ok: boolean;
+  status: number;
+  json(): Promise<unknown>;
+}
+
+async function apiFetch(url: string, opts: ApiFetchOptions = {}): Promise<ApiFetchResponse> {
+  const { ca, rejectUnauthorized = true, timeout = 10_000, method = "GET", headers = {}, body } = opts;
+
+  if (url.startsWith("https:")) {
+    return new Promise((resolve, reject) => {
+      const parsed = new URL(url);
+      const reqOpts: https.RequestOptions = {
+        hostname: parsed.hostname,
+        port: parseInt(parsed.port || "443", 10),
+        path: parsed.pathname + parsed.search,
+        method,
+        headers,
+        ca,
+        rejectUnauthorized,
+      };
+      const req = https.request(reqOpts, (res) => {
+        let data = "";
+        res.on("data", (chunk: string) => { data += chunk; });
+        res.on("end", () => {
+          const status = res.statusCode ?? 0;
+          resolve({
+            ok: status >= 200 && status < 300,
+            status,
+            json: () => Promise.resolve(JSON.parse(data)),
+          });
+        });
+        res.on("error", reject);
+      });
+      if (timeout) req.setTimeout(timeout, () => req.destroy(new Error("Request timed out")));
+      req.on("error", reject);
+      if (body) req.write(body);
+      req.end();
+    });
+  }
+
+  // HTTP — use native fetch
+  const res = await fetch(url, {
+    method,
+    headers,
+    body,
+    signal: AbortSignal.timeout(timeout),
+  });
+  return { ok: res.ok, status: res.status, json: () => res.json() };
+}
+
 // ── Health check ─────────────────────────────────────────────────────────────
 
 interface HealthResult {
@@ -203,11 +270,9 @@ interface HealthResult {
   sessionId: string | null;
 }
 
-async function checkHealth(serverUrl: string): Promise<HealthResult> {
+async function checkHealth(serverUrl: string, caPem?: string): Promise<HealthResult> {
   try {
-    const res = await fetch(`${serverUrl}/health`, {
-      signal: AbortSignal.timeout(5000),
-    });
+    const res = await apiFetch(`${serverUrl}/health`, { timeout: 5000, ca: caPem });
     const body = (await res.json()) as {
       ok: boolean;
       sessionActive: boolean;
@@ -275,11 +340,14 @@ async function pairFlow(
   let blob: string;
   let connectionId: string;
   try {
-    const res = await fetch(`${serverUrl}/pair`, {
+    // rejectUnauthorized: false is safe here — the /pair response is E2E encrypted
+    // with the pairingCode as the key, so a MITM cannot read or forge a valid response.
+    const res = await apiFetch(`${serverUrl}/pair`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ code: pairingCode.slice(0, 5), name }),
-      signal: AbortSignal.timeout(10_000),
+      timeout: 10_000,
+      rejectUnauthorized: false,
     });
     if (!res.ok) {
       spin.stop("Failed.");
@@ -376,7 +444,7 @@ async function reconnectFlow(uuid?: string, claudeArgs: string[] = []) {
 
   const spin = p.spinner();
   spin.start(`Checking ${chosen.serverUrl}...`);
-  const { alive } = await checkHealth(chosen.serverUrl);
+  const { alive } = await checkHealth(chosen.serverUrl, chosen.caPem);
   if (!alive) {
     spin.stop("Server offline or session expired.");
     process.exit(1);
@@ -403,7 +471,7 @@ async function listFlow() {
 
   console.log("\nSaved connections:\n");
   for (const c of connections) {
-    const { alive } = await checkHealth(c.serverUrl);
+    const { alive } = await checkHealth(c.serverUrl, c.caPem);
     const status = alive
       ? "\x1b[32m● online\x1b[0m"
       : "\x1b[90m○ offline\x1b[0m";
@@ -537,12 +605,14 @@ async function sessionPost(
   serverUrl: string,
   path: string,
   body: Record<string, string>,
+  caPem?: string,
 ): Promise<Record<string, unknown>> {
-  const r = await fetch(`${serverUrl}${path}`, {
+  const r = await apiFetch(`${serverUrl}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(5_000),
+    timeout: 5_000,
+    ca: caPem,
   });
   return r.ok ? (r.json() as Promise<Record<string, unknown>>) : {};
 }
@@ -575,9 +645,7 @@ async function launchClaude(
   // Register this Claude session with the sharer
   let sessionId: string | null = null;
   try {
-    const res = await sessionPost(meta.serverUrl, "/session/start", {
-      machineId: meta.id,
-    });
+    const res = await sessionPost(meta.serverUrl, "/session/start", { machineId: meta.id }, caPem);
     sessionId = (res["sessionId"] as string) ?? null;
     if (!sessionId)
       logger.warn("session/start returned no sessionId", {
@@ -593,7 +661,7 @@ async function launchClaude(
         void sessionPost(meta.serverUrl, "/session/heartbeat", {
           machineId: meta.id,
           sessionId: sessionId!,
-        }).catch(() => {});
+        }, caPem).catch(() => {});
       }, 30_000)
     : null;
 
@@ -607,12 +675,16 @@ async function launchClaude(
 
   const startTime = Date.now();
 
+  // HTTPS_PROXY/HTTP_PROXY must use http:// — CONNECT is sent over plain HTTP
+  // even when the API endpoint itself is https://. Strip the s if present.
+  const httpProxyUrl = proxyUrl.replace(/^https:\/\//, "http://");
+
   const child = spawn("claude", claudeArgs, {
     stdio: "inherit",
     env: {
       ...process.env,
-      HTTPS_PROXY: proxyUrl,
-      HTTP_PROXY: proxyUrl,
+      HTTPS_PROXY: httpProxyUrl,
+      HTTP_PROXY: httpProxyUrl,
       NODE_EXTRA_CA_CERTS: tmpCert,
       SSL_CERT_FILE: tmpCert,
       CURL_CA_BUNDLE: tmpCert,
@@ -625,7 +697,7 @@ async function launchClaude(
       await sessionPost(meta.serverUrl, "/session/end", {
         machineId: meta.id,
         sessionId,
-      }).catch(() => {});
+      }, caPem).catch(() => {});
     }
     try {
       fs.unlinkSync(tmpCert);
@@ -651,7 +723,7 @@ async function launchClaude(
       void sessionPost(meta.serverUrl, "/session/end", {
         machineId: meta.id,
         sessionId,
-      }).catch(() => {});
+      }, caPem).catch(() => {});
     }
     try {
       fs.unlinkSync(tmpCert);
@@ -701,7 +773,7 @@ if (args[0] === "--list" || args[0] === "-l") {
   // Check if we already have credentials for this sharer
   const existing = findConnectionByServerUrl(parsed.serverUrl);
   if (existing) {
-    const health = await checkHealth(existing.serverUrl);
+    const health = await checkHealth(existing.serverUrl, existing.caPem);
     if (health.alive && health.sessionId === existing.sessionId) {
       // Same session still running — skip pairing entirely
       p.intro("claude-receive");
@@ -734,7 +806,7 @@ if (args[0] === "--list" || args[0] === "-l") {
     spin.start("Checking active sharers...");
     const results = await Promise.all(
       saved.map(async (c) => {
-        const health = await checkHealth(c.serverUrl);
+        const health = await checkHealth(c.serverUrl, c.caPem);
         return {
           conn: c,
           alive: health.alive && health.sessionId === c.sessionId,

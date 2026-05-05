@@ -1,6 +1,6 @@
 {
   "name": "@0xpv/claude-receive",
-  "version": "0.5.1-alpha",
+  "version": "0.6.0-alpha",
   "description": "Connect to a shared Claude Code instance on your local network",
   "type": "module",
   "license": "MIT",

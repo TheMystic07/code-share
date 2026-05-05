@@ -1,6 +1,6 @@
 {
   "name": "@0xpv/claude-share",
-  "version": "0.5.2-alpha",
+  "version": "0.6.0-alpha",
   "description": "Share your Claude Code subscription with others on your local network",
   "type": "module",
   "license": "MIT",
@@ -38,6 +38,7 @@
     "hono": "^4.12.16",
     "http-mitm-proxy": "^1.1.0",
     "ink": "^7.0.1",
+    "node-forge": "^1.4.0",
     "react": "^19.2.5"
   },
   "devDependencies": {

@@ -203,8 +203,18 @@ interface ApiFetchResponse {
   json(): Promise<unknown>;
 }
 
-async function apiFetch(url: string, opts: ApiFetchOptions = {}): Promise<ApiFetchResponse> {
-  const { ca, rejectUnauthorized = true, timeout = 10_000, method = "GET", headers = {}, body } = opts;
+async function apiFetch(
+  url: string,
+  opts: ApiFetchOptions = {},
+): Promise<ApiFetchResponse> {
+  const {
+    ca,
+    rejectUnauthorized = true,
+    timeout = 10_000,
+    method = "GET",
+    headers = {},
+    body,
+  } = opts;
 
   if (url.startsWith("https:")) {
     return new Promise((resolve, reject) => {
@@ -220,7 +230,9 @@ async function apiFetch(url: string, opts: ApiFetchOptions = {}): Promise<ApiFet
       };
       const req = https.request(reqOpts, (res) => {
         let data = "";
-        res.on("data", (chunk: string) => { data += chunk; });
+        res.on("data", (chunk: string) => {
+          data += chunk;
+        });
         res.on("end", () => {
           const status = res.statusCode ?? 0;
           resolve({
@@ -231,7 +243,10 @@ async function apiFetch(url: string, opts: ApiFetchOptions = {}): Promise<ApiFet
         });
         res.on("error", reject);
       });
-      if (timeout) req.setTimeout(timeout, () => req.destroy(new Error("Request timed out")));
+      if (timeout)
+        req.setTimeout(timeout, () =>
+          req.destroy(new Error("Request timed out")),
+        );
       req.on("error", reject);
       if (body) req.write(body);
       req.end();
@@ -255,9 +270,15 @@ interface HealthResult {
   sessionId: string | null;
 }
 
-async function checkHealth(serverUrl: string, caPem?: string): Promise<HealthResult> {
+async function checkHealth(
+  serverUrl: string,
+  caPem?: string,
+): Promise<HealthResult> {
   try {
-    const res = await apiFetch(`${serverUrl}/health`, { timeout: 5000, ca: caPem });
+    const res = await apiFetch(`${serverUrl}/health`, {
+      timeout: 5000,
+      ca: caPem,
+    });
     const body = (await res.json()) as {
       ok: boolean;
       sessionActive: boolean;
@@ -578,7 +599,6 @@ async function ensureCredentials() {
   }
 }
 
-
 async function checkClaudeInstalled(): Promise<boolean> {
   const which = process.platform === "win32" ? "where" : "which";
   return execFileAsync(which, ["claude"])
@@ -630,7 +650,12 @@ async function launchClaude(
   // Register this Claude session with the sharer
   let sessionId: string | null = null;
   try {
-    const res = await sessionPost(meta.serverUrl, "/session/start", { machineId: meta.id }, caPem);
+    const res = await sessionPost(
+      meta.serverUrl,
+      "/session/start",
+      { machineId: meta.id },
+      caPem,
+    );
     sessionId = (res["sessionId"] as string) ?? null;
     if (!sessionId)
       logger.warn("session/start returned no sessionId", {
@@ -643,10 +668,15 @@ async function launchClaude(
   // 30-second heartbeat so sharer sees lastActiveAt update
   const heartbeat = sessionId
     ? setInterval(() => {
-        void sessionPost(meta.serverUrl, "/session/heartbeat", {
-          machineId: meta.id,
-          sessionId: sessionId!,
-        }, caPem).catch(() => {});
+        void sessionPost(
+          meta.serverUrl,
+          "/session/heartbeat",
+          {
+            machineId: meta.id,
+            sessionId: sessionId!,
+          },
+          caPem,
+        ).catch(() => {});
       }, 30_000)
     : null;
 
@@ -679,10 +709,15 @@ async function launchClaude(
   async function cleanupAndExit(code: number | null) {
     if (heartbeat) clearInterval(heartbeat);
     if (sessionId) {
-      await sessionPost(meta.serverUrl, "/session/end", {
-        machineId: meta.id,
-        sessionId,
-      }, caPem).catch(() => {});
+      await sessionPost(
+        meta.serverUrl,
+        "/session/end",
+        {
+          machineId: meta.id,
+          sessionId,
+        },
+        caPem,
+      ).catch(() => {});
     }
     try {
       fs.unlinkSync(tmpCert);
@@ -705,10 +740,15 @@ async function launchClaude(
     );
     if (heartbeat) clearInterval(heartbeat);
     if (sessionId) {
-      void sessionPost(meta.serverUrl, "/session/end", {
-        machineId: meta.id,
-        sessionId,
-      }, caPem).catch(() => {});
+      void sessionPost(
+        meta.serverUrl,
+        "/session/end",
+        {
+          machineId: meta.id,
+          sessionId,
+        },
+        caPem,
+      ).catch(() => {});
     }
     try {
       fs.unlinkSync(tmpCert);
@@ -797,6 +837,9 @@ if (args[0] === "--list" || args[0] === "-l") {
       }),
     );
     spin.stop();
+
+    // DONT-REMOVE -> its for debugging old connection not showing issue
+    p.log.info(JSON.stringify(results.map((r) => r.alive)));
 
     const active = results.filter((r) => r.alive).map((r) => r.conn);
 

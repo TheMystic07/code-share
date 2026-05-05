@@ -1,5 +1,7 @@
 import { execFile } from "node:child_process";
+import fs from "node:fs";
 import os from "node:os";
+import path from "node:path";
 import { promisify } from "node:util";
 
 import { logger } from "../logger.js";
@@ -14,7 +16,7 @@ interface OAuthCredentials {
   subscriptionType: string;
 }
 
-interface KeychainPayload {
+interface CredentialPayload {
   claudeAiOauth: OAuthCredentials;
 }
 
@@ -32,29 +34,39 @@ async function readFromKeychain(): Promise<OAuthCredentials> {
     username,
     "-w",
   ]);
-  const payload: KeychainPayload = JSON.parse(stdout.trim());
+  const payload: CredentialPayload = JSON.parse(stdout.trim());
   return payload.claudeAiOauth;
 }
 
+async function readFromFile(): Promise<OAuthCredentials> {
+  const credPath = path.join(os.homedir(), ".claude", ".credentials.json");
+  const raw = await fs.promises.readFile(credPath, "utf8");
+  const payload: CredentialPayload = JSON.parse(raw);
+  return payload.claudeAiOauth;
+}
+
+async function readToken(): Promise<OAuthCredentials> {
+  if (process.platform === "darwin") return readFromKeychain();
+  return readFromFile();
+}
+
 // Claude Code manages the OAuth refresh cycle on the sharer's machine and writes
-// the updated token back to Keychain. We just re-read from Keychain before expiry
-// instead of attempting the refresh ourselves.
-function scheduleKeychainReread(creds: OAuthCredentials): void {
+// the updated token back to its credential store. We re-read before expiry so
+// we're never caught with a stale token.
+function scheduleTokenReread(creds: OAuthCredentials): void {
   if (refreshTimer) clearTimeout(refreshTimer);
-  // Re-read 5 minutes before the token expires so we're never caught with a stale token
-  // todo: Verify is reading again gets ous the latest token or claude only refreshes token when claude cli is launched
   const msUntilReread = Math.max(
     creds.expiresAt - Date.now() - 5 * 60 * 1000,
     60_000,
   );
   refreshTimer = setTimeout(async () => {
     try {
-      cached = await readFromKeychain();
-      scheduleKeychainReread(cached);
+      cached = await readToken();
+      scheduleTokenReread(cached);
     } catch (err) {
-      console.error("[token] Keychain re-read failed, will retry in 60s:", err);
-      logger.error("[token] Keychain re-read failed, will retry in 60s", err);
-      refreshTimer = setTimeout(() => scheduleKeychainReread(creds), 60_000);
+      console.error("[token] credential re-read failed, will retry in 60s:", err);
+      logger.error("[token] credential re-read failed", err);
+      refreshTimer = setTimeout(() => scheduleTokenReread(creds), 60_000);
       refreshTimer.unref();
     }
   }, msUntilReread);
@@ -62,8 +74,8 @@ function scheduleKeychainReread(creds: OAuthCredentials): void {
 }
 
 export async function initToken(): Promise<void> {
-  cached = await readFromKeychain();
-  scheduleKeychainReread(cached);
+  cached = await readToken();
+  scheduleTokenReread(cached);
 }
 
 export function getAccessToken(): string {

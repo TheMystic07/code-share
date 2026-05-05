@@ -116,9 +116,9 @@ export function checkPairingCode(session: Session, ip: string, code: string): bo
   const attempts = session.pairingAttempts.get(ip) ?? 0;
   if (attempts >= 5) return false;
 
-  const expected = Buffer.from(session.pairingCode, "utf8");
-  const provided = Buffer.from(code.padEnd(session.pairingCode.length, "\0"), "utf8");
-  const match = expected.length === provided.length && crypto.timingSafeEqual(expected, provided);
+  const expected = Buffer.from(session.pairingCode.slice(0, 5), "utf8");
+  const provided = Buffer.from(code.slice(0, 5).padEnd(5, "\0"), "utf8");
+  const match = crypto.timingSafeEqual(expected, provided);
 
   if (!match) session.pairingAttempts.set(ip, attempts + 1);
   return match;

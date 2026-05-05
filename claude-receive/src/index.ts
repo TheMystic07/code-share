@@ -278,7 +278,7 @@ async function pairFlow(
     const res = await fetch(`${serverUrl}/pair`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ code: pairingCode, name }),
+      body: JSON.stringify({ code: pairingCode.slice(0, 5), name }),
       signal: AbortSignal.timeout(10_000),
     });
     if (!res.ok) {

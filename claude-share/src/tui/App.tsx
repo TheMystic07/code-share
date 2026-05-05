@@ -49,9 +49,20 @@ interface Props {
 }
 
 function copyToClipboard(text: string): void {
-  const cmd = process.platform === "darwin" ? "pbcopy" : "xclip";
-  const args = process.platform === "darwin" ? [] : ["-selection", "clipboard"];
+  let cmd: string;
+  let args: string[];
+  if (process.platform === "darwin") {
+    cmd = "pbcopy";
+    args = [];
+  } else if (process.env.WAYLAND_DISPLAY) {
+    cmd = "wl-copy";
+    args = [];
+  } else {
+    cmd = "xclip";
+    args = ["-selection", "clipboard"];
+  }
   const proc = spawn(cmd, args, { stdio: ["pipe", "ignore", "ignore"] });
+  proc.on("error", () => {}); // silently ignore if clipboard tool not installed
   proc.stdin.write(text);
   proc.stdin.end();
 }

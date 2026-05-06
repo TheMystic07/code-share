@@ -1,8 +1,8 @@
 # claude-relay
 
-Securely Share your claude-code subscription with your friends.
+Securely share your Claude Code subscription with others.
 
-One machine runs **claude-share** to expose its Claude credentials through a local proxy. Other machines run **claude-receive** to connect to it and use Claude Code as if they had their own subscription.
+One machine runs **claude-share** to expose its Claude credentials through a local proxy. Other machines run **claude-connect** to connect and use Claude Code as if they had their own subscription.
 
 ---
 
@@ -21,18 +21,19 @@ claude (CLI)                        claude-share
                                       └─ bore tunnel (public URL via bore.pub)
 ```
 
-- The sharer's OAuth token is never written to disk or sent to the receiver — it's injected per-request inside the MITM proxy.
-- The receiver installs a temporary CA cert (valid only for the session) so the MITM can intercept Anthropic traffic. Non-Anthropic domains (MCP servers, telemetry, etc.) pass through as a raw TCP tunnel — not inspected.
-- Pairing uses a one-time code. Once paired, the receiver's credentials are saved so reconnecting skips the pairing step.
+- The sharer's OAuth token is read from the macOS Keychain and injected per-request inside the MITM proxy — it is never written to disk or sent to the receiver.
+- The receiver installs a temporary CA cert (valid only for the session) so the MITM can intercept Anthropic traffic. Non-Anthropic domains pass through as an opaque TCP tunnel — never inspected.
+- Pairing uses a one-time code. Once paired, credentials are saved so reconnecting skips the pairing step.
 
 ---
 
-## Packages
+## Install
 
-| Package          | npm                    | Description                                              |
-| ---------------- | ---------------------- | -------------------------------------------------------- |
-| `claude-share`   | `@0xpv/claude-share`   | Run on the machine with the Claude subscription          |
-| `claude-receive` | `@0xpv/claude-receive` | Run on machines that want to use the shared subscription |
+```bash
+npm install -g @0xpv/claude-share
+```
+
+This installs both `claude-share` and `claude-connect` binaries.
 
 ---
 
@@ -41,10 +42,10 @@ claude (CLI)                        claude-share
 ### Sharer
 
 ```bash
-npx @0xpv/claude-share
+claude-share
 ```
 
-Requires [bore](https://github.com/ekzhang/bore) for internet sharing (`cargo install bore-cli` or `brew install bore-cli`). If bore is not installed you'll be prompted — decline to share on LAN only.
+Requires [bore](https://github.com/ekzhang/bore) for internet sharing (`brew install bore-cli`). If bore is not installed you'll be prompted — decline to share on LAN only.
 
 The TUI shows connection URLs. Share the **Public** URL with receivers over the internet, or the **LAN** URL for local network.
 
@@ -54,13 +55,25 @@ The TUI shows connection URLs. Share the **Public** URL with receivers over the 
 
 ```bash
 # First time — paste the connect URL from the sharer's TUI
-npx @0xpv/claude-receive --share <connect-url>
+claude-connect --share <connect-url>
 
 # Subsequent runs — pick from saved connections
-npx @0xpv/claude-receive
+claude-connect
 ```
 
 The receiver configures Claude Code to route through the proxy and installs the session CA cert automatically. Everything is cleaned up on exit.
+
+---
+
+## One-time use (npx)
+
+```bash
+# Sharer
+npx @0xpv/claude-share
+
+# Receiver
+npx -p @0xpv/claude-share claude-connect --share <connect-url>
+```
 
 ---
 
@@ -87,12 +100,12 @@ The receiver configures Claude Code to route through the proxy and installs the 
 
 ```bash
 # Sharer
-cd claude-share
-bun dev
+bun run dev:share
 
 # Receiver
-cd claude-receive
-bun dev --share <connect-url>
+bun run dev:connect --share <connect-url>
 ```
 
 Set `TUNNEL=0` to skip the bore tunnel during local development.
+
+Build: `bun run build` — compiles both binaries into their `dist/` folders.

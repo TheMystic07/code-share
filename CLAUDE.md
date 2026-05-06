@@ -12,7 +12,7 @@ bun claude-share/src/index.ts
 bun claude-connect/src/index.ts --share=<url>
 ```
 
-Build: `npm run build` (compiles both). Lint: `npm run lint`.
+Build: `bun run build` (compiles both via bun build). Lint: `bun run lint`.
 
 ## Architecture
 

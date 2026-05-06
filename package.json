@@ -26,7 +26,7 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsc -p claude-share/tsconfig.json && tsc -p claude-connect/tsconfig.json",
+    "build": "bun build claude-share/src/index.ts --outfile claude-share/dist/index.js --target node --packages=external && bun build claude-connect/src/index.ts --outfile claude-connect/dist/index.js --target node --packages=external",
     "dev:share": "bun claude-share/src/index.ts",
     "dev:connect": "bun claude-connect/src/index.ts",
     "start:share": "node claude-share/dist/index.js",

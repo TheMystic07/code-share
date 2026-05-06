@@ -13,6 +13,16 @@ const IS_DEV = process.env.NODE_ENV === "development";
 
 type View = "pairing" | "machines" | "sessions";
 
+function formatDuration(from: Date): string {
+  const secs = Math.floor((Date.now() - from.getTime()) / 1000);
+  if (secs < 60) return `${secs}s`;
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins} min${mins === 1 ? "" : "s"}`;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return m > 0 ? `${h}h ${m}m` : `${h}h`;
+}
+
 function formatRelative(date: Date): string {
   const secs = Math.floor((Date.now() - date.getTime()) / 1000);
   if (secs < 5) return "just now";
@@ -45,6 +55,7 @@ interface Props {
   sharedUntil: Date;
   getSession: () => Session | null;
   tunnelDown: boolean;
+  tunnelStartedAt: Date | null;
   onExit: () => void;
 }
 
@@ -75,6 +86,7 @@ export function App({
   sharedUntil,
   getSession,
   tunnelDown,
+  tunnelStartedAt,
   onExit,
 }: Props) {
   const { exit } = useApp();
@@ -164,6 +176,7 @@ export function App({
         {tunnelDown && (
           <Text color="red">
             ⚠ tunnel disconnected — receivers can't connect
+            {tunnelStartedAt ? ` (Active for ${formatDuration(tunnelStartedAt)})` : ""}
           </Text>
         )}
       </Box>

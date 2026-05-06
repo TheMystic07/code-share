@@ -301,6 +301,7 @@ async function main() {
   let tunnel: Awaited<ReturnType<typeof startTunnel>>;
   let publicUrl: string | null = null;
   let tunnelDown = false;
+  let tunnelStartedAt: Date | null = null;
   let rerenderApp: ((node: React.ReactElement) => void) | null = null;
 
   if (boreReady) {
@@ -314,6 +315,7 @@ async function main() {
       publicUrl = tunnel.publicUrl;
       urls.public = publicUrl;
       if (publicUrl) {
+        tunnelStartedAt = new Date();
         logger.info(`Tunnel active: ${publicUrl}`);
         console.log(`Tunnel active: ${publicUrl}`);
       } else {
@@ -348,6 +350,7 @@ async function main() {
       sharedUntil: session.sharedUntil,
       getSession: () => getSession(),
       tunnelDown,
+      tunnelStartedAt,
       onExit: () => {
         cleanup();
         process.exit(0);

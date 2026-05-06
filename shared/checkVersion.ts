@@ -11,7 +11,7 @@ const execFileAsync = promisify(execFile);
 
 const CURRENT_VERSION: string = pkg.version;
 const PACKAGE_NAME: string = pkg.name;
-const LATEST_URL = "https://claudeshare.in/latest";
+const REGISTRY_URL = `https://registry.npmjs.org/${PACKAGE_NAME}`;
 const CONFIG_FILE = path.join(os.homedir(), ".claude-share", "config.json");
 
 // ── Config helpers ────────────────────────────────────────────────────────────
@@ -100,6 +100,13 @@ function isNewer(latest: string, current: string): boolean {
 
 // ── Background version fetch ──────────────────────────────────────────────────
 
+function latestStableVersion(versions: Record<string, unknown>): string | null {
+  // Keep only versions with no pre-release identifier, then return the highest
+  const stable = Object.keys(versions).filter((v) => !v.includes("-"));
+  if (stable.length === 0) return null;
+  return stable.reduce((best, v) => (isNewer(v, best) ? v : best), stable[0]!);
+}
+
 function scheduleVersionCheck(): void {
   void (async () => {
     try {
@@ -107,7 +114,10 @@ function scheduleVersionCheck(): void {
       const timer = setTimeout(() => controller.abort(), 5_000);
       let text: string;
       try {
-        const res = await fetch(LATEST_URL, { signal: controller.signal });
+        const res = await fetch(REGISTRY_URL, {
+          signal: controller.signal,
+          headers: { Accept: "application/vnd.npm.install-v1+json" },
+        });
         clearTimeout(timer);
         if (!res.ok) return;
         text = (await res.text()).trim();
@@ -116,13 +126,10 @@ function scheduleVersionCheck(): void {
         return;
       }
 
-      let latest: string;
-      try {
-        const json = JSON.parse(text) as Record<string, unknown>;
-        latest = String(json["version"] ?? json["latest"] ?? text);
-      } catch {
-        latest = text;
-      }
+      const json = JSON.parse(text) as Record<string, unknown>;
+      const versions = (json["versions"] ?? {}) as Record<string, unknown>;
+      const latest = latestStableVersion(versions);
+      if (!latest) return;
 
       // Set or clear the flag so the next startup knows what to do
       patchConfig({ isUpgradeAvailable: isNewer(latest, CURRENT_VERSION) });

@@ -46,11 +46,17 @@ import {
 import { App } from "./tui/App";
 import { isBoreInstalled, installBore, startTunnel } from "./tunnel/index";
 
-const CLAUDE_SHARE_CONFIG = path.join(os.homedir(), ".claude-share", "config.json");
+const CLAUDE_SHARE_CONFIG = path.join(
+  os.homedir(),
+  ".claude-share",
+  "config.json",
+);
 
 function hasAgreedToTerms(): boolean {
   try {
-    const cfg = JSON.parse(fs.readFileSync(CLAUDE_SHARE_CONFIG, "utf8")) as Record<string, unknown>;
+    const cfg = JSON.parse(
+      fs.readFileSync(CLAUDE_SHARE_CONFIG, "utf8"),
+    ) as Record<string, unknown>;
     return cfg["hasTermsAgreed"] === true;
   } catch {
     return false;
@@ -62,10 +68,15 @@ function saveTermsAgreed(): void {
   fs.mkdirSync(dir, { recursive: true });
   let cfg: Record<string, unknown> = {};
   try {
-    cfg = JSON.parse(fs.readFileSync(CLAUDE_SHARE_CONFIG, "utf8")) as Record<string, unknown>;
+    cfg = JSON.parse(fs.readFileSync(CLAUDE_SHARE_CONFIG, "utf8")) as Record<
+      string,
+      unknown
+    >;
   } catch {}
   cfg["hasTermsAgreed"] = true;
-  fs.writeFileSync(CLAUDE_SHARE_CONFIG, JSON.stringify(cfg, null, 2), { mode: 0o600 });
+  fs.writeFileSync(CLAUDE_SHARE_CONFIG, JSON.stringify(cfg, null, 2), {
+    mode: 0o600,
+  });
 }
 
 function readSharerAccount(): SharerAccount | null {
@@ -127,15 +138,24 @@ async function main() {
   // which tears down stdin if any other prompt ran before it. By asking here
   // we replace that confirm: choosing "internet" is implicit consent to install
   // bore, so we only need a spinner (not a second confirm) if it's missing.
-  const envTunnel = process.env.TUNNEL !== "0" && process.env.TUNNEL !== "false";
+  const envTunnel =
+    process.env.TUNNEL !== "0" && process.env.TUNNEL !== "false";
 
   let boreReady = false;
   if (envTunnel) {
     const shareMode = await p.select({
       message: "How do you want to share?",
       options: [
-        { value: "internet", label: "Internet", hint: "tunnels via bore" },
-        { value: "lan", label: "LAN only", hint: "experimental" },
+        {
+          value: "internet",
+          label: "Internet",
+          hint: "EXPERIMENTAL: TCP tunnels via bore",
+        },
+        {
+          value: "lan",
+          label: "LAN only",
+          hint: "Both machines require to be on the same network",
+        },
       ],
     });
     if (p.isCancel(shareMode)) {
@@ -162,8 +182,8 @@ async function main() {
   if (!hasAgreedToTerms()) {
     p.log.warn(
       "You are sharing your Anthropic subscription at your own risk.\n" +
-      "This is an open-source project — you are free to try it out, but make\n" +
-      "sure you trust the person you are sharing your subscription with.",
+        "This is an open-source project — you are free to try it out, but make\n" +
+        "sure you trust the person you are sharing your subscription with.",
     );
     const agreed = await p.confirm({
       message: "Do you understand and want to continue?",
@@ -214,7 +234,12 @@ async function main() {
   const systemName = await getSystemName();
 
   // Hono API on a random localhost-only port — not exposed externally
-  const apiApp = createApiApp(urls, mitmProxy.caCertPem, sharerAccount, systemName);
+  const apiApp = createApiApp(
+    urls,
+    mitmProxy.caCertPem,
+    sharerAccount,
+    systemName,
+  );
   const API_PORT = await new Promise<number>((resolve, reject) => {
     const srv = net.createServer();
     srv.once("error", reject);
@@ -243,7 +268,11 @@ async function main() {
       });
 
       tlsSocket.once("data", (chunk) => {
-        const isConnect = chunk.slice(0, 8).toString("ascii").toUpperCase().startsWith("CONNECT");
+        const isConnect = chunk
+          .slice(0, 8)
+          .toString("ascii")
+          .toUpperCase()
+          .startsWith("CONNECT");
         tlsSocket.unshift(chunk);
         if (isConnect) {
           mitmProxy.handleSocket(tlsSocket);
@@ -268,7 +297,9 @@ async function main() {
   // rejected — all traffic must be wrapped in TLS.
   const detector = createPortDetector({
     onConnect: (socket) => {
-      socket.write("HTTP/1.1 426 Upgrade Required\r\nContent-Length: 0\r\n\r\n");
+      socket.write(
+        "HTTP/1.1 426 Upgrade Required\r\nContent-Length: 0\r\n\r\n",
+      );
       socket.destroy();
     },
     onTls: (socket) => {
@@ -279,7 +310,9 @@ async function main() {
       upstream.on("error", () => socket.destroy());
     },
     onHttp: (socket) => {
-      socket.write("HTTP/1.1 426 Upgrade Required\r\nContent-Length: 0\r\n\r\n");
+      socket.write(
+        "HTTP/1.1 426 Upgrade Required\r\nContent-Length: 0\r\n\r\n",
+      );
       socket.destroy();
     },
   });
@@ -312,7 +345,10 @@ async function main() {
       urls.lan = lanUrl;
       p.log.info(`Using port ${PORT} instead.`);
     } else {
-      const { stdout } = await execFileAsync("lsof", ["-ti", `tcp:${PORT}`]).catch(() => ({ stdout: "" }));
+      const { stdout } = await execFileAsync("lsof", [
+        "-ti",
+        `tcp:${PORT}`,
+      ]).catch(() => ({ stdout: "" }));
       const pids = stdout.trim().split("\n").filter(Boolean);
       if (pids.length === 0) {
         p.log.error(`Could not find process on port ${PORT}.`);

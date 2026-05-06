@@ -24,10 +24,8 @@ import {
   destroySession,
   isSessionExpired,
   getSession,
-  regeneratePairingCode,
   checkMachineAuth,
   type SharerAccount,
-  type Machine,
 } from "./session/manager.js";
 import { App } from "./tui/App.js";
 import { ensureBore, startTunnel } from "./tunnel/index.js";

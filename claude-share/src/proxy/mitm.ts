@@ -7,7 +7,6 @@ import { Proxy } from "http-mitm-proxy";
 
 import { generateServerCert, type ServerCert } from "../ca/serverCert.js";
 import { logger } from "../logger.js";
-import { getSession } from "../session/manager.js";
 import { writeDevLog, truncate, LOG_FILE, type DevLogEntry } from "./devLogger.js";
 import { logRequest, setResponseStatus } from "./requestLog.js";
 import { getAccessToken } from "./token.js";

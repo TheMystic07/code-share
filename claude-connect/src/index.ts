@@ -309,7 +309,7 @@ async function checkHealth(
       alive: body.ok && body.sessionActive,
       sessionId: body.sessionId ?? null,
     };
-  } catch (err) {
+  } catch {
     return { alive: false, sessionId: null };
   } finally {
     clearTimeout(timeoutId);
@@ -355,7 +355,7 @@ async function resolveActiveUrl(conn: SavedConnection): Promise<ResolvedUrl> {
       if (!h.alive) throw new Error("not alive");
       return { url, alive: true as const, sessionId: h.sessionId };
     }),
-  ).catch((err) => {
+  ).catch(() => {
     return fallback;
   });
 

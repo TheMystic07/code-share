@@ -15,6 +15,7 @@ import { render } from "ink";
 import React from "react";
 
 import { platform } from "@shared/platforms";
+import { checkForUpdate } from "@shared/checkVersion";
 import { logger } from "./logger";
 
 process.on("uncaughtException", (err) => {
@@ -120,6 +121,8 @@ async function promptDuration(): Promise<number> {
 }
 
 async function main() {
+  await checkForUpdate();
+
   // Check bore before any other clack prompts — p.confirm() tears down stdin
   // in a way that ink can't recover from if it runs last.
   const useTunnel =

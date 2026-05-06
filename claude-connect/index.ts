@@ -2,6 +2,7 @@
 import * as p from "@clack/prompts";
 
 import { platform } from "@shared/platforms";
+import { checkForUpdate } from "@shared/checkVersion";
 import { pairFlow } from "./flows/pair";
 import { reconnectFlow } from "./flows/reconnect";
 import { listFlow } from "./flows/list";
@@ -29,6 +30,8 @@ process.on("unhandledRejection", (reason) => {
 
 // Exits with a clear error if the platform is unsupported
 platform();
+
+await checkForUpdate();
 
 // ── Arg parsing ───────────────────────────────────────────────────────────────
 

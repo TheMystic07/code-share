@@ -85,10 +85,13 @@ export async function sessionPost(
   endpoint: string,
   body: Record<string, string>,
   caPem?: string,
+  proxyAuth?: string,
 ): Promise<Record<string, unknown>> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (proxyAuth) headers["Proxy-Authorization"] = proxyAuth;
   const r = await apiFetch(`${serverUrl}${endpoint}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify(body),
     timeout: 5_000,
     ca: caPem,
@@ -128,6 +131,10 @@ export async function launchClaude(
   const tmpCert = path.join(os.tmpdir(), `claude-share-ca-${Date.now()}.pem`);
   fs.writeFileSync(tmpCert, caPem, { mode: 0o600 });
 
+  const proxyAuth =
+    "Basic " +
+    Buffer.from(`${meta.proxyUser}:${meta.proxyPass}`).toString("base64");
+
   // Register this Claude session with the sharer
   let sessionId: string | null = null;
   try {
@@ -136,6 +143,7 @@ export async function launchClaude(
       "/session/start",
       { machineId: meta.id },
       caPem,
+      proxyAuth,
     );
     sessionId = (res["sessionId"] as string) ?? null;
     if (!sessionId)
@@ -157,6 +165,7 @@ export async function launchClaude(
             sessionId: sessionId!,
           },
           caPem,
+          proxyAuth,
         ).catch(() => {});
       }, 30_000)
     : null;
@@ -199,6 +208,7 @@ export async function launchClaude(
         "/session/end",
         { machineId: meta.id, sessionId },
         caPem,
+        proxyAuth,
       ).catch(() => {});
     }
     try {
@@ -227,6 +237,7 @@ export async function launchClaude(
         "/session/end",
         { machineId: meta.id, sessionId },
         caPem,
+        proxyAuth,
       ).catch(() => {});
     }
     try {

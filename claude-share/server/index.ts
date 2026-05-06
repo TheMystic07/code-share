@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import {
   getSession,
   checkPairingCode,
+  checkMachineAuth,
   addMachine,
   encryptConnectionFile,
   isSessionExpired,
@@ -25,6 +26,19 @@ export function createApiApp(
   systemName: string,
 ): Hono {
   const app = new Hono();
+
+  app.use("*", async (c, next) => {
+    const p = c.req.path;
+    if (p === "/health" || p === "/pair" || p.startsWith("/connect/")) {
+      return next();
+    }
+    const session = getSession();
+    const auth = c.req.header("proxy-authorization");
+    if (!auth || !session || !checkMachineAuth(session, auth)) {
+      return c.text("Unauthorized", 407);
+    }
+    return next();
+  });
 
   app.get("/health", (c) => {
     const session = getSession();

@@ -87,6 +87,13 @@ export async function pairFlow(
     const data = (await res.json()) as { blob: string; machineId: string };
     blob = data.blob;
     connectionId = data.machineId;
+    const UUID_RE =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!UUID_RE.test(connectionId)) {
+      spin.stop("Failed.");
+      p.log.error("Server returned an invalid machine ID.");
+      process.exit(1);
+    }
   } catch (err) {
     spin.stop("Network error.");
     logger.error("Pairing network error", err);

@@ -15,7 +15,11 @@ export function ensureConnectionsDir() {
 }
 
 export function connectionPath(id: string) {
-  return path.join(CONNECTIONS_DIR, `${id}.json`);
+  const resolved = path.resolve(CONNECTIONS_DIR, `${id}.json`);
+  if (!resolved.startsWith(CONNECTIONS_DIR + path.sep)) {
+    throw new Error(`Invalid connection ID: ${id}`);
+  }
+  return resolved;
 }
 
 // ── Device config ─────────────────────────────────────────────────────────────

@@ -14,6 +14,16 @@ import { xchacha20poly1305 } from "@noble/ciphers/chacha.js";
 import { cache } from "./cache.js";
 import { logger } from "./logger.js";
 
+process.on("uncaughtException", (err) => {
+  logger.error("Uncaught exception", err);
+  process.exit(1);
+});
+
+process.on("unhandledRejection", (reason) => {
+  logger.error("Unhandled rejection", reason);
+  process.exit(1);
+});
+
 // ── Types shared with claude-share ──────────────────────────────────────────
 
 interface SharerAccount {

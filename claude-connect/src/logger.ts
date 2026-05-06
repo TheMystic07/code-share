@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 
 const LOG_DIR = path.join(os.homedir(), ".claude-share", "logs");
-const LOG_FILE = path.join(LOG_DIR, "receive.log");
+const LOG_FILE = path.join(LOG_DIR, "connect.log");
 
 function write(level: "INFO" | "WARN" | "ERROR", message: string, extra?: unknown): void {
   try {

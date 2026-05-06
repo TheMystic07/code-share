@@ -88,10 +88,11 @@ export async function createMitmProxy(
     proxy.use(Proxy.gunzip);
 
     proxy.onError((ctx: any, err: any) => {
-      if (err && (err as NodeJS.ErrnoException).code !== "ECONNRESET") {
-        console.error("[mitm] error:", err.message);
-        logger.error("[mitm] proxy error", err);
-      }
+      if (!err) return;
+      const code = (err as NodeJS.ErrnoException).code;
+      // ECONNRESET and HPE_INVALID_EOF_STATE are benign keep-alive teardowns
+      if (code === "ECONNRESET" || code === "HPE_INVALID_EOF_STATE") return;
+      logger.error("[mitm] proxy error", err);
     });
 
     proxy.onRequest((ctx: any, callback: () => void) => {

@@ -1,7 +1,7 @@
 {
   "name": "@0xpv/claude-share",
   "version": "0.7.0-alpha",
-  "description": "Share your Claude Code subscription with others on your local network",
+  "description": "Share or connect to a Claude Code subscription",
   "type": "module",
   "license": "MIT",
   "keywords": [
@@ -15,20 +15,24 @@
     "node": ">=18"
   },
   "bin": {
-    "claude-share": "./dist/index.js"
+    "claude-share": "./claude-share/dist/index.js",
+    "claude-connect": "./claude-receive/dist/index.js"
   },
   "files": [
-    "dist"
+    "claude-share/dist",
+    "claude-receive/dist"
   ],
   "publishConfig": {
     "access": "public"
   },
   "scripts": {
-    "build": "tsc",
-    "dev": "bun src/index.ts",
-    "start": "node dist/index.js",
-    "lint": "oxlint src",
-    "fmt": "oxfmt --config ../.oxfmtrc.json src",
+    "build": "tsc -p claude-share/tsconfig.json && tsc -p claude-receive/tsconfig.json",
+    "dev:share": "bun claude-share/src/index.ts",
+    "dev:connect": "bun claude-receive/src/index.ts",
+    "start:share": "node claude-share/dist/index.js",
+    "start:connect": "node claude-receive/dist/index.js",
+    "lint": "oxlint claude-share/src claude-receive/src",
+    "fmt": "oxfmt --config .oxfmtrc.json claude-share/src claude-receive/src",
     "prepublishOnly": "npm run lint && npm run build"
   },
   "dependencies": {

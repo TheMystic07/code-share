@@ -30,6 +30,17 @@ export function createApiApp(urls: Urls, caPem: string, sharerAccount: SharerAcc
     });
   });
 
+  /** GET /connect/:code — human-readable hint when someone opens the URL in a browser */
+  app.get("/connect/:code", (c) => {
+    const url = c.req.url;
+    return c.text(
+      `This is a claude-share connect link — it cannot be opened in a browser.\n\n` +
+      `Run this instead:\n\n  claude-receive --share "${url}"\n`,
+      200,
+      { "Content-Type": "text/plain; charset=utf-8" },
+    );
+  });
+
   /** POST /pair — one-time pairing with a machine */
   app.post("/pair", async (c) => {
     const session = getSession();

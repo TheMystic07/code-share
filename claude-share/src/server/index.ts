@@ -52,6 +52,8 @@ export function createApiApp(urls: Urls, caPem: string, sharerAccount: SharerAcc
       caPem,
       sharerAccount,
       systemName,
+      proxyUser: machine.id,
+      proxyPass: machine.proxyPass,
     };
 
     const blob = encryptConnectionFile(session, file);

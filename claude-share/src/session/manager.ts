@@ -38,6 +38,7 @@ export interface Machine {
   name: string;
   pairedAt: Date;
   sessions: Map<string, MachineSession>;
+  proxyPass: string;
 }
 
 export interface SharerAccount {
@@ -54,6 +55,8 @@ export interface ConnectionFile {
   caPem: string;
   sharerAccount: SharerAccount | null;
   systemName: string;
+  proxyUser: string;
+  proxyPass: string;
 }
 
 export interface Session {
@@ -140,11 +143,21 @@ export function addMachine(session: Session, name: string): Machine {
     name: deduplicateName(session, name),
     pairedAt: new Date(),
     sessions: new Map(),
+    proxyPass: Buffer.from(randomBytes(16)).toString("hex"),
   };
   session.machines.set(machine.id, machine);
   session.pairingCodeUsed = true;
   session.status = "active";
   return machine;
+}
+
+/** Returns true if the Proxy-Authorization header matches any active machine. */
+export function checkMachineAuth(session: Session, authHeader: string): boolean {
+  for (const machine of session.machines.values()) {
+    const expected = "Basic " + Buffer.from(`${machine.id}:${machine.proxyPass}`).toString("base64");
+    if (authHeader === expected) return true;
+  }
+  return false;
 }
 
 export function addMachineSession(session: Session, machineId: string): MachineSession | null {

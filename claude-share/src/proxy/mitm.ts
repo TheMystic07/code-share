@@ -78,7 +78,7 @@ export interface MitmProxy {
  * Starts the MITM proxy on a random localhost port.
  * Resolves only after the RSA CA is ready so CONNECT handling never races.
  */
-export async function createMitmProxy(lanIp: string | null = null): Promise<MitmProxy> {
+export async function createMitmProxy(lanIp: string | null = null, checkAuth: (authHeader: string) => boolean = () => false): Promise<MitmProxy> {
   const sslCaDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "claude-share-mitm-"));
 
   return new Promise<MitmProxy>((resolve, reject) => {
@@ -215,6 +215,18 @@ export async function createMitmProxy(lanIp: string | null = null): Promise<Mitm
     }
 
     proxy.onConnect((req: any, socket: any, head: any, callback: () => void) => {
+      const connectAuth = req.headers["proxy-authorization"] ?? "";
+      if (!checkAuth(connectAuth)) {
+        socket.write(
+          "HTTP/1.1 407 Proxy Authentication Required\r\n" +
+          "Proxy-Authenticate: Basic realm=\"claude-share\"\r\n" +
+          "Content-Length: 0\r\n" +
+          "\r\n",
+        );
+        socket.destroy();
+        return;
+      }
+
       const [hostname, portStr] = (req.url as string ?? "").split(":");
       if (INTERCEPT_DOMAINS.has(hostname)) {
         callback();

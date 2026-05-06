@@ -30,6 +30,8 @@ interface ConnectionFile {
   caPem: string;
   sharerAccount: SharerAccount | null;
   systemName?: string;
+  proxyUser: string;
+  proxyPass: string;
 }
 
 interface SavedConnection {
@@ -42,6 +44,8 @@ interface SavedConnection {
   caPem: string;
   savedAt: string;
   sharerAccount: SharerAccount | null;
+  proxyUser: string;
+  proxyPass: string;
 }
 
 // ── Paths ────────────────────────────────────────────────────────────────────
@@ -306,7 +310,6 @@ async function checkHealth(
       sessionId: body.sessionId ?? null,
     };
   } catch (err) {
-    p.log.error(JSON.stringify(err));
     return { alive: false, sessionId: null };
   } finally {
     clearTimeout(timeoutId);
@@ -330,9 +333,9 @@ async function resolveActiveUrl(conn: SavedConnection): Promise<ResolvedUrl> {
     candidates.push({ url: conn.lanServerUrl, timeout: 1000 });
   }
 
-  // if (conn.publicServerUrl) {
-  //   candidates.push({ url: conn.publicServerUrl, timeout: 2000 });
-  // }
+  if (conn.publicServerUrl) {
+    candidates.push({ url: conn.publicServerUrl, timeout: 2000 });
+  }
 
   const fallback: ResolvedUrl = {
     url: candidates[0]?.url ?? "",
@@ -353,7 +356,6 @@ async function resolveActiveUrl(conn: SavedConnection): Promise<ResolvedUrl> {
       return { url, alive: true as const, sessionId: h.sessionId };
     }),
   ).catch((err) => {
-    // p.log.error(err);
     return fallback;
   });
 
@@ -467,6 +469,8 @@ async function pairFlow(
     caPem: file.caPem,
     savedAt: new Date().toISOString(),
     sharerAccount: file.sharerAccount ?? null,
+    proxyUser: file.proxyUser,
+    proxyPass: file.proxyPass,
   };
   fs.writeFileSync(
     connectionPath(connectionId),
@@ -695,7 +699,12 @@ async function sessionPost(
 async function launchClaude(
   proxyUrl: string,
   caPem: string,
-  meta: { systemName: string; id: string },
+  meta: {
+    systemName: string;
+    id: string;
+    proxyUser: string;
+    proxyPass: string;
+  },
   claudeArgs: string[] = [],
   sharerAccount: SharerAccount | null = null,
 ) {
@@ -761,8 +770,12 @@ async function launchClaude(
   const startTime = Date.now();
 
   // HTTPS_PROXY/HTTP_PROXY must use http:// — CONNECT is sent over plain HTTP
-  // even when the API endpoint itself is https://. Strip the s if present.
-  const httpProxyUrl = proxyUrl.replace(/^https:\/\//, "http://");
+  // even when the API endpoint itself is https://. Strip the s if present,
+  // then embed machine credentials so the proxy can authenticate the connection.
+  const parsedProxy = new URL(proxyUrl.replace(/^https:\/\//, "http://"));
+  parsedProxy.username = encodeURIComponent(meta.proxyUser);
+  parsedProxy.password = encodeURIComponent(meta.proxyPass);
+  const httpProxyUrl = parsedProxy.toString();
 
   const child = spawn("claude", claudeArgs, {
     stdio: "inherit",

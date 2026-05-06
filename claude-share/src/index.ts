@@ -25,6 +25,7 @@ import {
   isSessionExpired,
   getSession,
   regeneratePairingCode,
+  checkMachineAuth,
   type SharerAccount,
   type Machine,
 } from "./session/manager.js";
@@ -127,7 +128,10 @@ async function main() {
   let loopbackUrl = `http://localhost:${PORT}`;
 
   // MITM proxy resolves only after its RSA CA is ready (no race on CONNECT)
-  const mitmProxy = await createMitmProxy(lanIp);
+  const mitmProxy = await createMitmProxy(lanIp, (auth) => {
+    const session = getSession();
+    return session ? checkMachineAuth(session, auth) : false;
+  });
   console.log("MITM proxy ready.");
 
   // Mutable — publicUrl is filled in after the tunnel starts

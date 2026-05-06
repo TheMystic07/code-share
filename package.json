@@ -25,7 +25,7 @@
     "access": "public"
   },
   "scripts": {
-    "build": "bun build claude-share/src/index.ts --outfile dist/claude-share/index.js --target node --external @clack/prompts --external @hono/node-server --external @noble/ciphers --external hono --external http-mitm-proxy --external ink --external node-forge --external react && bun build claude-connect/src/index.ts --outfile dist/claude-connect/index.js --target node --external @clack/prompts --external @noble/ciphers",
+    "build": "bun build claude-share/src/index.ts --outfile dist/claude-share/index.js --target node --packages=external && bun build claude-connect/src/index.ts --outfile dist/claude-connect/index.js --target node --packages=external",
     "dev:share": "bun claude-share/src/index.ts",
     "dev:connect": "bun claude-connect/src/index.ts",
     "start:share": "node dist/claude-share/index.js",

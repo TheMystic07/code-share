@@ -1,0 +1,103 @@
+import { cache } from "./cache.js";
+import { apiFetch } from "./fetch.js";
+import type { SavedConnection } from "./types.js";
+
+interface HealthResult {
+  alive: boolean;
+  sessionId: string | null;
+}
+
+export interface ResolvedUrl {
+  url: string;
+  alive: boolean;
+  sessionId: string | null;
+}
+
+/**
+ * @description This function checks the /health route to check if server is online and allows connections
+ * @param serverUrl
+ * @param caPem
+ * @param timeout
+ * @returns HealthResult
+ */
+async function checkHealth(
+  serverUrl: string,
+  caPem?: string,
+  timeout = 2000,
+): Promise<HealthResult> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => {
+    controller.abort();
+  }, timeout);
+
+  try {
+    const res = await apiFetch(`${serverUrl}/health`, {
+      signal: controller.signal,
+      ca: caPem,
+    });
+
+    const body = (await res.json()) as {
+      ok: boolean;
+      sessionActive: boolean;
+      sessionId?: string;
+    };
+    return {
+      alive: body.ok && body.sessionActive,
+      sessionId: body.sessionId ?? null,
+    };
+  } catch {
+    return { alive: false, sessionId: null };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+/**
+ * @description Takes the connection file to figure out the
+ *  fastest route (LAN or Public URL) to reach server.
+ *  (Caches resolved url for 30 secs)
+ * @param conn
+ * @returns Resolved URL
+ */
+export async function resolveActiveUrl(
+  conn: SavedConnection,
+): Promise<ResolvedUrl> {
+  const cacheKey = `resolvedUrl:${conn.id}`;
+  const cached = cache.get<ResolvedUrl>(cacheKey);
+  if (cached) return cached;
+
+  const candidates: Array<{ url: string; timeout: number }> = [];
+
+  if (conn.lanServerUrl) {
+    candidates.push({ url: conn.lanServerUrl, timeout: 1000 });
+  }
+
+  if (conn.publicServerUrl) {
+    candidates.push({ url: conn.publicServerUrl, timeout: 2000 });
+  }
+
+  const fallback: ResolvedUrl = {
+    url: candidates[0]?.url ?? "",
+    alive: false,
+    sessionId: null,
+  };
+
+  if (candidates.length === 0) return fallback;
+
+  const overallTimeout = new Promise<ResolvedUrl>((resolve) =>
+    setTimeout(() => resolve(fallback), 3_000),
+  );
+
+  const race = Promise.any(
+    candidates.map(async ({ url, timeout }) => {
+      const h = await checkHealth(url, conn.caPem, timeout);
+      if (!h.alive) throw new Error("not alive");
+      return { url, alive: true as const, sessionId: h.sessionId };
+    }),
+  ).catch(() => {
+    return fallback;
+  });
+
+  const result = await Promise.race([race, overallTimeout]);
+  if (result.alive) cache.set(cacheKey, result, 30_000);
+  return result;
+}

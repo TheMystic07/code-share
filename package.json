@@ -31,8 +31,8 @@
     "dev:connect": "bun claude-connect/src/index.ts",
     "start:share": "node claude-share/dist/index.js",
     "start:connect": "node claude-connect/dist/index.js",
-    "lint": "oxlint claude-share/src claude-connect/src",
-    "fmt": "oxfmt --config .oxfmtrc.json claude-share/src claude-connect/src",
+    "lint": "oxlint claude-share/src claude-connect/src shared",
+    "fmt": "oxfmt --config .oxfmtrc.json claude-share/src claude-connect/src shared",
     "prepublishOnly": "npm run lint && npm run build"
   },
   "dependencies": {

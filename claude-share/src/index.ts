@@ -1,19 +1,16 @@
 #!/usr/bin/env node
-import { execFile } from "node:child_process";
 import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import tls from "node:tls";
-import { promisify } from "node:util";
-
-const execFileAsync = promisify(execFile);
 
 import * as p from "@clack/prompts";
 import { serve } from "@hono/node-server";
 import { render } from "ink";
 import React from "react";
 
+import { platform } from "../../shared/platforms/index.js";
 import { logger } from "./logger.js";
 
 process.on("uncaughtException", (err) => {
@@ -25,6 +22,9 @@ process.on("unhandledRejection", (reason) => {
   logger.error("Unhandled rejection", reason);
   process.exit(1);
 });
+
+// Exits with a clear error if the platform is unsupported
+platform();
 
 import { createPortDetector } from "./port/detector.js";
 import { createMitmProxy } from "./proxy/mitm.js";
@@ -61,16 +61,7 @@ function readSharerAccount(): SharerAccount | null {
 }
 
 async function getSystemName(): Promise<string> {
-  try {
-    if (process.platform === "darwin") {
-      const { stdout } = await execFileAsync("scutil", ["--get", "ComputerName"]);
-      return stdout.trim();
-    }
-    const { stdout } = await execFileAsync("hostname");
-    return stdout.trim();
-  } catch {
-    return os.hostname();
-  }
+  return platform().getSystemName();
 }
 
 function getLanIp(): string | null {

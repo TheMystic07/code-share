@@ -7,18 +7,11 @@ import { Proxy } from "http-mitm-proxy";
 
 import { generateServerCert, type ServerCert } from "../ca/serverCert";
 import { logger } from "../logger";
-import { writeDevLog, truncate, LOG_FILE, type DevLogEntry } from "./devLogger";
 import { logRequest, setResponseStatus } from "./requestLog";
 import { getAccessToken } from "./token";
 
-const IS_DEV = process.env.NODE_ENV === "development";
-
 // Per-request log id stored on ctx so onResponse can update it
 const CTX_LOG_ID = Symbol("logId");
-
-// Dev-mode: full request/response entry and raw body chunks
-const DEV_ENTRY = Symbol("devEntry");
-const DEV_CHUNKS = Symbol("devChunks");
 
 // Domains the proxy intercepts and forwards to Anthropic with injected token
 const INTERCEPT_DOMAINS = new Set([
@@ -122,19 +115,6 @@ export async function createMitmProxy(
 
       if (hostname === "api.anthropic.com" && !isApiAllowed(method, reqPath)) {
         logRequest(method, hostname, reqPath, "blocked");
-        if (IS_DEV) {
-          writeDevLog({
-            ts: new Date().toISOString(),
-            outcome: "BLOCKED",
-            method,
-            host: hostname,
-            path: reqPath,
-            requestHeaders: ctx.clientToProxyRequest.headers,
-            requestBody: "",
-            httpStatus: null,
-            responseHeaders: null,
-          });
-        }
         ctx.proxyToClientResponse.writeHead(403, {
           "Content-Type": "text/plain",
         });
@@ -174,21 +154,6 @@ export async function createMitmProxy(
       delete ctx.proxyToServerRequestOptions.headers["x-forwarded-for"];
       delete ctx.proxyToServerRequestOptions.headers["x-real-ip"];
 
-      if (IS_DEV && hostname === "api.anthropic.com") {
-        ctx[DEV_ENTRY] = {
-          ts: new Date().toISOString(),
-          outcome: "INTERCEPTED",
-          method,
-          host: hostname,
-          path: reqPath,
-          requestHeaders: ctx.clientToProxyRequest.headers,
-          requestBody: "",
-          httpStatus: null,
-          responseHeaders: null,
-        } satisfies DevLogEntry;
-        ctx[DEV_CHUNKS] = [] as Buffer[];
-      }
-
       callback();
     });
 
@@ -206,38 +171,8 @@ export async function createMitmProxy(
         delete respHeaders["x-api-key"];
       }
 
-      if (IS_DEV && ctx[DEV_ENTRY]) {
-        ctx[DEV_ENTRY].httpStatus =
-          ctx.serverToProxyResponse.statusCode ?? null;
-        ctx[DEV_ENTRY].responseHeaders = respHeaders ?? null;
-      }
       callback();
     });
-
-    if (IS_DEV) {
-      console.log(`[dev] logging requests to ${LOG_FILE}`);
-
-      proxy.onRequestData(
-        (
-          ctx: any,
-          chunk: Buffer,
-          callback: (err: null, chunk: Buffer) => void,
-        ) => {
-          if (ctx[DEV_CHUNKS]) ctx[DEV_CHUNKS].push(chunk);
-          callback(null, chunk);
-        },
-      );
-
-      proxy.onRequestEnd((ctx: any, callback: () => void) => {
-        const entry: DevLogEntry | undefined = ctx[DEV_ENTRY];
-        if (entry) {
-          const chunks: Buffer[] = ctx[DEV_CHUNKS] ?? [];
-          entry.requestBody = truncate(Buffer.concat(chunks));
-          writeDevLog(entry);
-        }
-        callback();
-      });
-    }
 
     proxy.onConnect(
       (req: any, socket: any, head: any, callback: () => void) => {

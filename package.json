@@ -25,9 +25,9 @@
     "access": "public"
   },
   "scripts": {
-    "build": "bun build claude-share/src/index.ts --outfile dist/claude-share/index.js --target node && bun build claude-connect/src/index.ts --outfile dist/claude-connect/index.js --target node",
-    "dev:share": "bun claude-share/src/index.ts",
-    "dev:connect": "bun claude-connect/src/index.ts",
+    "build": "bun build claude-share/index.ts --outfile dist/claude-share/index.js --target node && bun build claude-connect/index.ts --outfile dist/claude-connect/index.js --target node",
+    "dev:share": "bun claude-share/index.ts",
+    "dev:connect": "bun claude-connect/index.ts",
     "start:share": "node dist/claude-share/index.js",
     "start:connect": "node dist/claude-connect/index.js",
     "lint": "oxlint claude-share/src claude-connect/src shared",

@@ -47,7 +47,8 @@ function isApiAllowed(method: string, reqPath: string): boolean {
   }
   for (const allowed of API_ALLOWED_PATHS) {
     if (reqPath.startsWith(allowed.prefix)) {
-      if (allowed.method === null || allowed.method === method.toUpperCase()) return true;
+      if (allowed.method === null || allowed.method === method.toUpperCase())
+        return true;
     }
   }
   return false;
@@ -77,8 +78,13 @@ export interface MitmProxy {
  * Starts the MITM proxy on a random localhost port.
  * Resolves only after the RSA CA is ready so CONNECT handling never races.
  */
-export async function createMitmProxy(lanIp: string | null = null, checkAuth: (authHeader: string) => boolean = () => false): Promise<MitmProxy> {
-  const sslCaDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "claude-share-mitm-"));
+export async function createMitmProxy(
+  lanIp: string | null = null,
+  checkAuth: (authHeader: string) => boolean = () => false,
+): Promise<MitmProxy> {
+  const sslCaDir = await fs.promises.mkdtemp(
+    path.join(os.tmpdir(), "claude-share-mitm-"),
+  );
 
   return new Promise<MitmProxy>((resolve, reject) => {
     let proxyPort = 0;
@@ -107,7 +113,9 @@ export async function createMitmProxy(lanIp: string | null = null, checkAuth: (a
 
       if (!INTERCEPT_DOMAINS.has(hostname)) {
         logRequest(method, hostname, reqPath, "blocked");
-        ctx.proxyToClientResponse.writeHead(403, { "Content-Type": "text/plain" });
+        ctx.proxyToClientResponse.writeHead(403, {
+          "Content-Type": "text/plain",
+        });
         ctx.proxyToClientResponse.end("Not allowed by claude-share policy");
         return;
       }
@@ -127,31 +135,44 @@ export async function createMitmProxy(lanIp: string | null = null, checkAuth: (a
             responseHeaders: null,
           });
         }
-        ctx.proxyToClientResponse.writeHead(403, { "Content-Type": "text/plain" });
+        ctx.proxyToClientResponse.writeHead(403, {
+          "Content-Type": "text/plain",
+        });
         ctx.proxyToClientResponse.end("Not allowed by claude-share policy");
         return;
       }
-      if (hostname === "platform.anthropic.com" && !isPlatformAnthropicAllowed(reqPath)) {
+      if (
+        hostname === "platform.anthropic.com" &&
+        !isPlatformAnthropicAllowed(reqPath)
+      ) {
         logRequest(method, hostname, reqPath, "blocked");
-        ctx.proxyToClientResponse.writeHead(403, { "Content-Type": "text/plain" });
+        ctx.proxyToClientResponse.writeHead(403, {
+          "Content-Type": "text/plain",
+        });
         ctx.proxyToClientResponse.end("Not allowed by claude-share policy");
         return;
       }
-      if (hostname === "platform.claude.com" && !isPlatformClaudeAllowed(reqPath)) {
+      if (
+        hostname === "platform.claude.com" &&
+        !isPlatformClaudeAllowed(reqPath)
+      ) {
         logRequest(method, hostname, reqPath, "blocked");
-        ctx.proxyToClientResponse.writeHead(403, { "Content-Type": "text/plain" });
+        ctx.proxyToClientResponse.writeHead(403, {
+          "Content-Type": "text/plain",
+        });
         ctx.proxyToClientResponse.end("Not allowed by claude-share policy");
         return;
       }
 
       ctx[CTX_LOG_ID] = logRequest(method, hostname, reqPath, "allowed");
 
-      ctx.proxyToServerRequestOptions.headers = ctx.proxyToServerRequestOptions.headers ?? {};
-      ctx.proxyToServerRequestOptions.headers["authorization"] = `Bearer ${getAccessToken()}`;
+      ctx.proxyToServerRequestOptions.headers =
+        ctx.proxyToServerRequestOptions.headers ?? {};
+      ctx.proxyToServerRequestOptions.headers["authorization"] =
+        `Bearer ${getAccessToken()}`;
 
       delete ctx.proxyToServerRequestOptions.headers["x-forwarded-for"];
       delete ctx.proxyToServerRequestOptions.headers["x-real-ip"];
-
 
       if (IS_DEV && hostname === "api.anthropic.com") {
         ctx[DEV_ENTRY] = {
@@ -186,7 +207,8 @@ export async function createMitmProxy(lanIp: string | null = null, checkAuth: (a
       }
 
       if (IS_DEV && ctx[DEV_ENTRY]) {
-        ctx[DEV_ENTRY].httpStatus = ctx.serverToProxyResponse.statusCode ?? null;
+        ctx[DEV_ENTRY].httpStatus =
+          ctx.serverToProxyResponse.statusCode ?? null;
         ctx[DEV_ENTRY].responseHeaders = respHeaders ?? null;
       }
       callback();
@@ -196,7 +218,11 @@ export async function createMitmProxy(lanIp: string | null = null, checkAuth: (a
       console.log(`[dev] logging requests to ${LOG_FILE}`);
 
       proxy.onRequestData(
-        (ctx: any, chunk: Buffer, callback: (err: null, chunk: Buffer) => void) => {
+        (
+          ctx: any,
+          chunk: Buffer,
+          callback: (err: null, chunk: Buffer) => void,
+        ) => {
           if (ctx[DEV_CHUNKS]) ctx[DEV_CHUNKS].push(chunk);
           callback(null, chunk);
         },
@@ -213,68 +239,83 @@ export async function createMitmProxy(lanIp: string | null = null, checkAuth: (a
       });
     }
 
-    proxy.onConnect((req: any, socket: any, head: any, callback: () => void) => {
-      const connectAuth = req.headers["proxy-authorization"] ?? "";
-      if (!checkAuth(connectAuth)) {
-        socket.write(
-          "HTTP/1.1 407 Proxy Authentication Required\r\n" +
-          "Proxy-Authenticate: Basic realm=\"claude-share\"\r\n" +
-          "Content-Length: 0\r\n" +
-          "\r\n",
-        );
-        socket.destroy();
-        return;
-      }
+    proxy.onConnect(
+      (req: any, socket: any, head: any, callback: () => void) => {
+        const connectAuth = req.headers["proxy-authorization"] ?? "";
+        if (!checkAuth(connectAuth)) {
+          socket.write(
+            "HTTP/1.1 407 Proxy Authentication Required\r\n" +
+              'Proxy-Authenticate: Basic realm="claude-share"\r\n' +
+              "Content-Length: 0\r\n" +
+              "\r\n",
+          );
+          socket.destroy();
+          return;
+        }
 
-      const [hostname, portStr] = (req.url as string ?? "").split(":");
-      if (INTERCEPT_DOMAINS.has(hostname)) {
-        callback();
-        return;
-      }
-      // Non-Anthropic domain: transparent TCP tunnel — no cert, no decryption.
-      // The client's TLS handshake goes straight to the real server.
-      const port = parseInt(portStr, 10) || 443;
-      const upstream = net.connect(port, hostname, () => {
-        socket.write("HTTP/1.1 200 Connection established\r\n\r\n");
-        if (head?.length) upstream.write(head);
-        upstream.pipe(socket);
-        socket.pipe(upstream);
-      });
-      upstream.on("error", () => socket.destroy());
-      socket.on("error", () => upstream.destroy());
-    });
+        const [hostname, portStr] = ((req.url as string) ?? "").split(":");
+        if (INTERCEPT_DOMAINS.has(hostname)) {
+          callback();
+          return;
+        }
+        // Non-Anthropic domain: transparent TCP tunnel — no cert, no decryption.
+        // The client's TLS handshake goes straight to the real server.
+        const port = parseInt(portStr, 10) || 443;
+        const upstream = net.connect(port, hostname, () => {
+          socket.write("HTTP/1.1 200 Connection established\r\n\r\n");
+          if (head?.length) upstream.write(head);
+          upstream.pipe(socket);
+          socket.pipe(upstream);
+        });
+        upstream.on("error", () => socket.destroy());
+        socket.on("error", () => upstream.destroy());
+      },
+    );
 
     // Listen on a random localhost port — CA generation completes before callback fires
-    proxy.listen({ port: 0, host: "127.0.0.1", sslCaDir }, (err?: Error | null) => {
-      if (err) return reject(err);
+    proxy.listen(
+      { port: 0, host: "127.0.0.1", sslCaDir },
+      (err?: Error | null) => {
+        if (err) return reject(err);
 
-      (async () => {
-        proxyPort = (proxy as any).httpServer.address().port;
-        proxyReady = true;
-        const caCertPem = fs.readFileSync(path.join(sslCaDir, "certs", "ca.pem"), "utf8");
-        const caKeyPem = fs.readFileSync(path.join(sslCaDir, "keys", "ca.private.key"), "utf8");
-        const serverCert = await generateServerCert(caCertPem, caKeyPem, lanIp);
+        (async () => {
+          proxyPort = (proxy as any).httpServer.address().port;
+          proxyReady = true;
+          const caCertPem = fs.readFileSync(
+            path.join(sslCaDir, "certs", "ca.pem"),
+            "utf8",
+          );
+          const caKeyPem = fs.readFileSync(
+            path.join(sslCaDir, "keys", "ca.private.key"),
+            "utf8",
+          );
+          const serverCert = await generateServerCert(
+            caCertPem,
+            caKeyPem,
+            lanIp,
+          );
 
-        for (const s of pendingSockets) pipeToProxy(s);
-        pendingSockets.length = 0;
+          for (const s of pendingSockets) pipeToProxy(s);
+          pendingSockets.length = 0;
 
-        resolve({
-          caCertPem,
-          serverCert,
-          handleSocket(socket) {
-            if (proxyReady) {
-              pipeToProxy(socket);
-            } else {
-              pendingSockets.push(socket);
-            }
-          },
-          close() {
-            proxy.close();
-            fs.rm(sslCaDir, { recursive: true, force: true }, () => {});
-          },
-        });
-      })().catch(reject);
-    });
+          resolve({
+            caCertPem,
+            serverCert,
+            handleSocket(socket) {
+              if (proxyReady) {
+                pipeToProxy(socket);
+              } else {
+                pendingSockets.push(socket);
+              }
+            },
+            close() {
+              proxy.close();
+              fs.rm(sslCaDir, { recursive: true, force: true }, () => {});
+            },
+          });
+        })().catch(reject);
+      },
+    );
 
     function pipeToProxy(socket: net.Socket) {
       const upstream = net.connect(proxyPort, "127.0.0.1");

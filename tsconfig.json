@@ -8,8 +8,8 @@
     "skipLibCheck": true,
     "types": ["node"],
     "paths": {
-      "@shared/*": ["./shared/*"]
-    }
+      "@shared/*": ["./shared/*"],
+    },
   },
-  "include": ["claude-share/src", "claude-connect/src", "shared"]
+  "include": ["claude-share", "claude-connect", "shared"],
 }

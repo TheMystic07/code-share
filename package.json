@@ -16,23 +16,23 @@
   },
   "bin": {
     "claude-share": "./claude-share/dist/index.js",
-    "claude-connect": "./claude-receive/dist/index.js"
+    "claude-connect": "./claude-connect/dist/index.js"
   },
   "files": [
     "claude-share/dist",
-    "claude-receive/dist"
+    "claude-connect/dist"
   ],
   "publishConfig": {
     "access": "public"
   },
   "scripts": {
-    "build": "tsc -p claude-share/tsconfig.json && tsc -p claude-receive/tsconfig.json",
+    "build": "tsc -p claude-share/tsconfig.json && tsc -p claude-connect/tsconfig.json",
     "dev:share": "bun claude-share/src/index.ts",
-    "dev:connect": "bun claude-receive/src/index.ts",
+    "dev:connect": "bun claude-connect/src/index.ts",
     "start:share": "node claude-share/dist/index.js",
-    "start:connect": "node claude-receive/dist/index.js",
-    "lint": "oxlint claude-share/src claude-receive/src",
-    "fmt": "oxfmt --config .oxfmtrc.json claude-share/src claude-receive/src",
+    "start:connect": "node claude-connect/dist/index.js",
+    "lint": "oxlint claude-share/src claude-connect/src",
+    "fmt": "oxfmt --config .oxfmtrc.json claude-share/src claude-connect/src",
     "prepublishOnly": "npm run lint && npm run build"
   },
   "dependencies": {

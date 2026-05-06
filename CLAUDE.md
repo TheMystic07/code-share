@@ -1,6 +1,6 @@
 # claude-relay
 
-Single npm package (`@0xpv/claude-share`) exposing two binaries: `claude-share` (sharer) and `claude-connect` (receiver). Source lives in `claude-share/src/` and `claude-receive/src/` respectively; both compile into their own `dist/` via the root `package.json`.
+Single npm package (`@0xpv/claude-share`) exposing two binaries: `claude-share` (sharer) and `claude-connect` (receiver). Source lives in `claude-share/src/` and `claude-connect/src/` respectively; both compile into their own `dist/` via the root `package.json`.
 
 ## Dev commands
 
@@ -9,7 +9,7 @@ bun run dev                                      # claude-share (TUNNEL=0 to ski
 bun run dev:connect --share=<url>                # claude-connect
 # or directly:
 bun claude-share/src/index.ts
-bun claude-receive/src/index.ts --share=<url>
+bun claude-connect/src/index.ts --share=<url>
 ```
 
 Build: `npm run build` (compiles both). Lint: `npm run lint`.

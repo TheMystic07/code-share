@@ -47,6 +47,15 @@ export function getDeviceName(): string {
   return name;
 }
 
+export function hasAgreedToTerms(): boolean {
+  return readConfig()?.hasTermsAgreed === true;
+}
+
+export function saveTermsAgreed(): void {
+  const cfg = readConfig() ?? { deviceName: os.hostname() };
+  writeConfig({ ...cfg, hasTermsAgreed: true });
+}
+
 // ── Connection persistence ────────────────────────────────────────────────────
 
 export function loadConnections(): SavedConnection[] {

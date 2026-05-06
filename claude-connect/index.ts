@@ -11,8 +11,10 @@ import { logger } from "./logger";
 import { parseConnectUrl } from "./pairing";
 import {
   findConnectionByServerUrl,
+  hasAgreedToTerms,
   loadConnections,
   pruneExpiredConnections,
+  saveTermsAgreed,
 } from "./storage";
 
 process.on("uncaughtException", (err) => {
@@ -48,6 +50,24 @@ const claudeArgs = args.filter((_, i) => !ownIdxs.has(i));
 const shareArg = args.find((a) => a.startsWith("--share="));
 
 pruneExpiredConnections();
+
+if (!hasAgreedToTerms()) {
+  p.intro("claude-connect");
+  p.log.warn(
+    "You are connecting to someone else's Anthropic subscription at your own risk.\n" +
+    "This is an open-source project — you are free to try it out, but make\n" +
+    "sure you trust the person sharing their subscription with you.",
+  );
+  const agreed = await p.confirm({
+    message: "Do you understand and want to continue?",
+    initialValue: false,
+  });
+  if (p.isCancel(agreed) || !agreed) {
+    p.cancel("Cancelled.");
+    process.exit(0);
+  }
+  saveTermsAgreed();
+}
 
 // ── Dispatch ──────────────────────────────────────────────────────────────────
 

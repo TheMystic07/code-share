@@ -1,9 +1,9 @@
 import * as p from "@clack/prompts";
 
-import { resolveActiveUrl } from "../health.js";
-import { launchClaude } from "../launch.js";
-import { loadConnections } from "../storage.js";
-import type { SavedConnection } from "../types.js";
+import { resolveActiveUrl } from "../health";
+import { launchClaude } from "../launch";
+import { loadConnections } from "../storage";
+import type { SavedConnection } from "../types";
 
 export async function reconnectFlow(
   uuid?: string,

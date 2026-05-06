@@ -1,6 +1,6 @@
 import { xchacha20poly1305 } from "@noble/ciphers/chacha.js";
 
-import type { ConnectionFile } from "./types.js";
+import type { ConnectionFile } from "./types";
 
 // ── Base58 decode ────────────────────────────────────────────────────────────
 

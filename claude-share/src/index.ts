@@ -1,17 +1,21 @@
 #!/usr/bin/env node
+import { execFile } from "node:child_process";
 import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import tls from "node:tls";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
 
 import * as p from "@clack/prompts";
 import { serve } from "@hono/node-server";
 import { render } from "ink";
 import React from "react";
 
-import { platform } from "../../shared/platforms/index.js";
-import { logger } from "./logger.js";
+import { platform } from "@shared/platforms";
+import { logger } from "./logger";
 
 process.on("uncaughtException", (err) => {
   logger.error("Uncaught exception", err);
@@ -26,10 +30,10 @@ process.on("unhandledRejection", (reason) => {
 // Exits with a clear error if the platform is unsupported
 platform();
 
-import { createPortDetector } from "./port/detector.js";
-import { createMitmProxy } from "./proxy/mitm.js";
-import { initToken, stopTokenRefresh } from "./proxy/token.js";
-import { createApiApp } from "./server/index.js";
+import { createPortDetector } from "./port/detector";
+import { createMitmProxy } from "./proxy/mitm";
+import { initToken, stopTokenRefresh } from "./proxy/token";
+import { createApiApp } from "./server/index";
 import {
   createSession,
   destroySession,
@@ -37,9 +41,9 @@ import {
   getSession,
   checkMachineAuth,
   type SharerAccount,
-} from "./session/manager.js";
-import { App } from "./tui/App.js";
-import { ensureBore, startTunnel } from "./tunnel/index.js";
+} from "./session/manager";
+import { App } from "./tui/App";
+import { ensureBore, startTunnel } from "./tunnel/index";
 
 function readSharerAccount(): SharerAccount | null {
   try {

@@ -1,6 +1,6 @@
-import { platform } from "../../../shared/platforms/index.js";
-import type { OAuthCredentials } from "../../../shared/platforms/index.js";
-import { logger } from "../logger.js";
+import { platform } from "@shared/platforms";
+import type { OAuthCredentials } from "@shared/platforms";
+import { logger } from "../logger";
 
 // In-memory only — token never written to disk
 let cached: OAuthCredentials | null = null;

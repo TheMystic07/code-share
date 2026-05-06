@@ -5,11 +5,11 @@ import path from "node:path";
 
 import { Proxy } from "http-mitm-proxy";
 
-import { generateServerCert, type ServerCert } from "../ca/serverCert.js";
-import { logger } from "../logger.js";
-import { writeDevLog, truncate, LOG_FILE, type DevLogEntry } from "./devLogger.js";
-import { logRequest, setResponseStatus } from "./requestLog.js";
-import { getAccessToken } from "./token.js";
+import { generateServerCert, type ServerCert } from "../ca/serverCert";
+import { logger } from "../logger";
+import { writeDevLog, truncate, LOG_FILE, type DevLogEntry } from "./devLogger";
+import { logRequest, setResponseStatus } from "./requestLog";
+import { getAccessToken } from "./token";
 
 const IS_DEV = process.env.NODE_ENV === "development";
 

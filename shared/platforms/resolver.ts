@@ -1,6 +1,6 @@
-import darwin from "./darwin.js";
-import linux from "./linux.js";
-import type { PlatformOps } from "./types.js";
+import darwin from "./darwin";
+import linux from "./linux";
+import type { PlatformOps } from "./types";
 
 const SUPPORTED = {
   darwin,

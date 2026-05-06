@@ -6,10 +6,10 @@ import { promisify } from "node:util";
 
 import * as p from "@clack/prompts";
 
-import { platform } from "../../shared/platforms/index.js";
-import { apiFetch } from "./fetch.js";
-import { logger } from "./logger.js";
-import type { SharerAccount } from "./types.js";
+import { platform } from "@shared/platforms";
+import { apiFetch } from "./fetch";
+import { logger } from "./logger";
+import type { SharerAccount } from "./types";
 
 const execFileAsync = promisify(execFile);
 

@@ -1,5 +1,5 @@
-import { resolveActiveUrl } from "../health.js";
-import { loadConnections } from "../storage.js";
+import { resolveActiveUrl } from "../health";
+import { loadConnections } from "../storage";
 
 export async function listFlow() {
   const connections = loadConnections();

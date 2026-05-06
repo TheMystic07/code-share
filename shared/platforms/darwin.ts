@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import os from "node:os";
 import { promisify } from "node:util";
 
-import type { CredentialPayload, OAuthCredentials, PlatformOps } from "./types.js";
+import type { CredentialPayload, OAuthCredentials, PlatformOps } from "./types";
 
 const execFileAsync = promisify(execFile);
 const SERVICE = "Claude Code-credentials";

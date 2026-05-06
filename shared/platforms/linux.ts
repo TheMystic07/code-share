@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import type { CredentialPayload, OAuthCredentials, PlatformOps } from "./types.js";
+import type { CredentialPayload, OAuthCredentials, PlatformOps } from "./types";
 
 const execFileAsync = promisify(execFile);
 const CRED_PATH = path.join(os.homedir(), ".claude", ".credentials.json");

@@ -1,19 +1,19 @@
 #!/usr/bin/env node
 import * as p from "@clack/prompts";
 
-import { platform } from "../../shared/platforms/index.js";
-import { pairFlow } from "./flows/pair.js";
-import { reconnectFlow } from "./flows/reconnect.js";
-import { listFlow } from "./flows/list.js";
-import { resolveActiveUrl } from "./health.js";
-import { launchClaude } from "./launch.js";
-import { logger } from "./logger.js";
-import { parseConnectUrl } from "./pairing.js";
+import { platform } from "@shared/platforms";
+import { pairFlow } from "./flows/pair";
+import { reconnectFlow } from "./flows/reconnect";
+import { listFlow } from "./flows/list";
+import { resolveActiveUrl } from "./health";
+import { launchClaude } from "./launch";
+import { logger } from "./logger";
+import { parseConnectUrl } from "./pairing";
 import {
   findConnectionByServerUrl,
   loadConnections,
   pruneExpiredConnections,
-} from "./storage.js";
+} from "./storage";
 
 process.on("uncaughtException", (err) => {
   logger.error("Uncaught exception", err);

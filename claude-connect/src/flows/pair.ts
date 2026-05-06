@@ -2,16 +2,16 @@ import fs from "node:fs";
 
 import * as p from "@clack/prompts";
 
-import { apiFetch } from "../fetch.js";
-import { launchClaude } from "../launch.js";
-import { logger } from "../logger.js";
-import { decryptBlob, parseConnectUrl } from "../pairing.js";
+import { apiFetch } from "../fetch";
+import { launchClaude } from "../launch";
+import { logger } from "../logger";
+import { decryptBlob, parseConnectUrl } from "../pairing";
 import {
   connectionPath,
   ensureConnectionsDir,
   getDeviceName,
-} from "../storage.js";
-import type { ConnectionFile, SavedConnection } from "../types.js";
+} from "../storage";
+import type { ConnectionFile, SavedConnection } from "../types";
 
 export async function pairFlow(
   prefill?: { serverUrl: string; pairingCode: string },

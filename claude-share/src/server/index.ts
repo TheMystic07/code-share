@@ -11,14 +11,19 @@ import {
   heartbeatMachineSession,
   type ConnectionFile,
   type SharerAccount,
-} from "../session/manager.js";
+} from "../session/manager";
 
 interface Urls {
   public: string | null;
   lan: string | null;
 }
 
-export function createApiApp(urls: Urls, caPem: string, sharerAccount: SharerAccount | null, systemName: string): Hono {
+export function createApiApp(
+  urls: Urls,
+  caPem: string,
+  sharerAccount: SharerAccount | null,
+  systemName: string,
+): Hono {
   const app = new Hono();
 
   app.get("/health", (c) => {
@@ -35,7 +40,7 @@ export function createApiApp(urls: Urls, caPem: string, sharerAccount: SharerAcc
     const url = c.req.url;
     return c.text(
       `This is a claude-share connect link — it cannot be opened in a browser.\n\n` +
-      `Run this instead:\n\n  claude-receive --share "${url}"\n`,
+        `Run this instead:\n\n  claude-connect --share "${url}"\n`,
       200,
       { "Content-Type": "text/plain; charset=utf-8" },
     );
@@ -44,14 +49,17 @@ export function createApiApp(urls: Urls, caPem: string, sharerAccount: SharerAcc
   /** POST /pair — one-time pairing with a machine */
   app.post("/pair", async (c) => {
     const session = getSession();
-    if (!session || isSessionExpired(session)) return c.json({ error: "No active session" }, 503);
+    if (!session || isSessionExpired(session))
+      return c.json({ error: "No active session" }, 503);
 
-    const ip = c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
+    const ip =
+      c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
     const body = await c.req.json<{ code?: string; name?: string }>();
     const code = body.code?.trim() ?? "";
     const name = body.name?.trim() ?? "unknown device";
 
-    if (!checkPairingCode(session, ip, code)) return c.json({ error: "Invalid pairing code" }, 401);
+    if (!checkPairingCode(session, ip, code))
+      return c.json({ error: "Invalid pairing code" }, 401);
 
     const machine = addMachine(session, name);
 
@@ -85,7 +93,10 @@ export function createApiApp(urls: Urls, caPem: string, sharerAccount: SharerAcc
   app.post("/session/end", async (c) => {
     const session = getSession();
     if (!session) return c.json({ error: "No active session" }, 503);
-    const { machineId, sessionId } = await c.req.json<{ machineId: string; sessionId: string }>();
+    const { machineId, sessionId } = await c.req.json<{
+      machineId: string;
+      sessionId: string;
+    }>();
     endMachineSession(session, machineId, sessionId);
     return c.json({ ok: true });
   });
@@ -94,7 +105,10 @@ export function createApiApp(urls: Urls, caPem: string, sharerAccount: SharerAcc
   app.post("/session/heartbeat", async (c) => {
     const session = getSession();
     if (!session) return c.json({ error: "No active session" }, 503);
-    const { machineId, sessionId } = await c.req.json<{ machineId: string; sessionId: string }>();
+    const { machineId, sessionId } = await c.req.json<{
+      machineId: string;
+      sessionId: string;
+    }>();
     heartbeatMachineSession(session, machineId, sessionId);
     return c.json({ ok: true });
   });

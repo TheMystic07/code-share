@@ -1,6 +1,6 @@
-import { cache } from "./cache.js";
-import { apiFetch } from "./fetch.js";
-import type { SavedConnection } from "./types.js";
+import { cache } from "./cache";
+import { apiFetch } from "./fetch";
+import type { SavedConnection } from "./types";
 
 interface HealthResult {
   alive: boolean;

@@ -45,6 +45,28 @@ import {
 import { App } from "./tui/App";
 import { ensureBore, startTunnel } from "./tunnel/index";
 
+const CLAUDE_SHARE_CONFIG = path.join(os.homedir(), ".claude-share", "config.json");
+
+function hasAgreedToTerms(): boolean {
+  try {
+    const cfg = JSON.parse(fs.readFileSync(CLAUDE_SHARE_CONFIG, "utf8")) as Record<string, unknown>;
+    return cfg["hasTermsAgreed"] === true;
+  } catch {
+    return false;
+  }
+}
+
+function saveTermsAgreed(): void {
+  const dir = path.dirname(CLAUDE_SHARE_CONFIG);
+  fs.mkdirSync(dir, { recursive: true });
+  let cfg: Record<string, unknown> = {};
+  try {
+    cfg = JSON.parse(fs.readFileSync(CLAUDE_SHARE_CONFIG, "utf8")) as Record<string, unknown>;
+  } catch {}
+  cfg["hasTermsAgreed"] = true;
+  fs.writeFileSync(CLAUDE_SHARE_CONFIG, JSON.stringify(cfg, null, 2), { mode: 0o600 });
+}
+
 function readSharerAccount(): SharerAccount | null {
   try {
     const raw = fs.readFileSync(
@@ -105,6 +127,23 @@ async function main() {
   const boreReady = useTunnel ? await ensureBore() : false;
 
   p.intro("claude-share");
+
+  if (!hasAgreedToTerms()) {
+    p.log.warn(
+      "You are sharing your Anthropic subscription at your own risk.\n" +
+      "This is an open-source project — you are free to try it out, but make\n" +
+      "sure you trust the person you are sharing your subscription with.",
+    );
+    const agreed = await p.confirm({
+      message: "Do you understand and want to continue?",
+      initialValue: false,
+    });
+    if (p.isCancel(agreed) || !agreed) {
+      p.cancel("Cancelled.");
+      process.exit(0);
+    }
+    saveTermsAgreed();
+  }
 
   await initToken();
 

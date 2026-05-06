@@ -198,10 +198,12 @@ export function App({
                 <Text dimColor>not available — local network only</Text>
               </Box>
             )}
-            <Box gap={1}>
-              <Text dimColor>Local </Text>
-              <Text dimColor>{connectUrl(loopbackUrl)}</Text>
-            </Box>
+            {IS_DEV && (
+              <Box gap={1}>
+                <Text dimColor>Local </Text>
+                <Text dimColor>{connectUrl(loopbackUrl)}</Text>
+              </Box>
+            )}
           </Box>
           <Box marginTop={1}>
             <Text dimColor>One-time code — only one machine can use it.</Text>

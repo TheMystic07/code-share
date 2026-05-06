@@ -762,7 +762,7 @@ async function launchClaude(
   p.log.success(
     `Launching Claude via ${meta.systemName}. All API calls proxied through sharer.`,
   );
-  p.log.info(`Proxy: ${proxyUrl}`);
+
   if (claudeArgs.length > 0) p.log.info(`Extra args: ${claudeArgs.join(" ")}`);
   p.log.info("Press Ctrl+C to exit and disconnect.");
   p.outro("");

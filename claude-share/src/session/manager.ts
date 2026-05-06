@@ -3,25 +3,11 @@ import { webcrypto } from "node:crypto";
 
 import { xchacha20poly1305 } from "@noble/ciphers/chacha.js";
 
+import { toBase58 } from "@shared/base58";
+import type { ConnectionFile, SharerAccount } from "@shared/types";
+
 function randomBytes(n: number): Uint8Array {
   return webcrypto.getRandomValues(new Uint8Array(n));
-}
-
-const BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
-
-function toBase58(bytes: Uint8Array): string {
-  let num = BigInt("0x" + Buffer.from(bytes).toString("hex"));
-  const base = BigInt(58);
-  const result: string[] = [];
-  while (num > 0n) {
-    result.push(BASE58_ALPHABET[Number(num % base)]);
-    num /= base;
-  }
-  for (const b of bytes) {
-    if (b !== 0) break;
-    result.push(BASE58_ALPHABET[0]);
-  }
-  return result.reverse().join("");
 }
 
 export type SessionStatus = "waiting" | "active" | "expired" | "revoked";
@@ -41,23 +27,7 @@ export interface Machine {
   proxyPass: string;
 }
 
-export interface SharerAccount {
-  emailAddress: string;
-  displayName: string;
-  organizationName: string;
-}
-
-export interface ConnectionFile {
-  publicServerUrl: string | null;
-  lanServerUrl: string | null;
-  sessionId: string;
-  sharedUntil: string; // ISO-8601
-  caPem: string;
-  sharerAccount: SharerAccount | null;
-  systemName: string;
-  proxyUser: string;
-  proxyPass: string;
-}
+export type { ConnectionFile, SharerAccount } from "@shared/types";
 
 export interface Session {
   id: string;

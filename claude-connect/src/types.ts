@@ -1,20 +1,6 @@
-export interface SharerAccount {
-  emailAddress: string;
-  displayName: string;
-  organizationName: string;
-}
+import type { SharerAccount } from "@shared/types";
 
-export interface ConnectionFile {
-  publicServerUrl: string | null;
-  lanServerUrl: string | null;
-  sessionId: string;
-  sharedUntil: string; // ISO-8601
-  caPem: string;
-  sharerAccount: SharerAccount | null;
-  systemName?: string;
-  proxyUser: string;
-  proxyPass: string;
-}
+export type { ConnectionFile, SharerAccount } from "@shared/types";
 
 export interface SavedConnection {
   id: string;

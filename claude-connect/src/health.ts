@@ -1,4 +1,4 @@
-import { cache } from "./cache";
+import { cache } from "@shared/cache";
 import { apiFetch } from "./fetch";
 import type { SavedConnection } from "./types";
 

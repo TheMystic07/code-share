@@ -156,22 +156,30 @@ async function main() {
   });
 
   // Internal TLS termination server: accepts raw TLS bytes from the detector,
-  // does the handshake, then forwards plaintext HTTP to the Hono API port.
-  // Using tls.createServer (full server lifecycle) instead of tls.TLSSocket
-  // wrapping, which is not reliably supported in Bun.
+  // does the handshake, then routes by sniffing the first decrypted bytes:
+  //   CONNECT → MITM proxy (HTTPS proxy tunnel)
+  //   anything else → Hono API port (regular HTTPS API call)
   const tlsTermServer = tls.createServer(
     { cert: mitmProxy.serverCert.certPem, key: mitmProxy.serverCert.keyPem },
     (tlsSocket) => {
-      const upstream = net.connect(API_PORT, "127.0.0.1");
-      tlsSocket.pipe(upstream);
-      upstream.pipe(tlsSocket);
       tlsSocket.on("error", (err) => {
         if ((err as NodeJS.ErrnoException).code !== "ECONNRESET") {
-          console.error("[tls] terminator error:", err.message);
+          console.error("[tls] socket error:", err.message);
         }
-        upstream.destroy();
       });
-      upstream.on("error", () => tlsSocket.destroy());
+
+      tlsSocket.once("data", (chunk) => {
+        const isConnect = chunk.slice(0, 8).toString("ascii").toUpperCase().startsWith("CONNECT");
+        tlsSocket.unshift(chunk);
+        if (isConnect) {
+          mitmProxy.handleSocket(tlsSocket);
+        } else {
+          const upstream = net.connect(API_PORT, "127.0.0.1");
+          tlsSocket.pipe(upstream);
+          upstream.pipe(tlsSocket);
+          upstream.on("error", () => tlsSocket.destroy());
+        }
+      });
     },
   );
   const TLS_TERM_PORT = await new Promise<number>((resolve, reject) => {
@@ -181,9 +189,14 @@ async function main() {
     });
   });
 
-  // Single public port: CONNECT → MITM proxy, TLS ClientHello → TLS terminator, plain HTTP → Hono API
+  // Single public port: TLS ClientHello → TLS terminator (handles both HTTPS API
+  // and HTTPS proxy CONNECT after decryption). Plain HTTP and bare CONNECT are
+  // rejected — all traffic must be wrapped in TLS.
   const detector = createPortDetector({
-    onConnect: (socket) => mitmProxy.handleSocket(socket),
+    onConnect: (socket) => {
+      socket.write("HTTP/1.1 426 Upgrade Required\r\nContent-Length: 0\r\n\r\n");
+      socket.destroy();
+    },
     onTls: (socket) => {
       const upstream = net.connect(TLS_TERM_PORT, "127.0.0.1");
       socket.pipe(upstream);
@@ -192,11 +205,8 @@ async function main() {
       upstream.on("error", () => socket.destroy());
     },
     onHttp: (socket) => {
-      const upstream = net.connect(API_PORT, "127.0.0.1");
-      socket.pipe(upstream);
-      upstream.pipe(socket);
-      socket.on("error", () => upstream.destroy());
-      upstream.on("error", () => socket.destroy());
+      socket.write("HTTP/1.1 426 Upgrade Required\r\nContent-Length: 0\r\n\r\n");
+      socket.destroy();
     },
   });
 

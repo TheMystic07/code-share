@@ -33,6 +33,7 @@ export async function generateServerCert(
 
   const altNames: { type: number; value?: string; ip?: string }[] = [
     { type: 2, value: "localhost" },
+    { type: 2, value: "bore.pub" },
     { type: 7, ip: "127.0.0.1" },
   ];
   if (lanIp) altNames.push({ type: 7, ip: lanIp });

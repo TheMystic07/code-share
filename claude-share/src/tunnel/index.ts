@@ -95,7 +95,7 @@ export function startTunnel(localPort: number, onDown?: () => void): Promise<Tun
         clearTimeout(timeout);
         const port = match[1];
         resolve({
-          publicUrl: `http://bore.pub:${port}`,
+          publicUrl: `https://bore.pub:${port}`,
           close() {
             closing = true;
             proc.kill();

@@ -769,10 +769,10 @@ async function launchClaude(
 
   const startTime = Date.now();
 
-  // HTTPS_PROXY/HTTP_PROXY must use http:// — CONNECT is sent over plain HTTP
-  // even when the API endpoint itself is https://. Strip the s if present,
-  // then embed machine credentials so the proxy can authenticate the connection.
-  const parsedProxy = new URL(proxyUrl.replace(/^https:\/\//, "http://"));
+  // Proxy URL keeps https:// — the TLS terminator on the sharer routes CONNECT
+  // requests to the MITM proxy after decryption, so the outer connection is
+  // encrypted and proxy credentials are never sent in cleartext over the network.
+  const parsedProxy = new URL(proxyUrl);
   parsedProxy.username = encodeURIComponent(meta.proxyUser);
   parsedProxy.password = encodeURIComponent(meta.proxyPass);
   const httpProxyUrl = parsedProxy.toString();

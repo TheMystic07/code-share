@@ -1,4 +1,4 @@
-# claude-relay
+# claude-share
 
 Securely share your Claude Code subscription with others.
 

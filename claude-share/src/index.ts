@@ -15,6 +15,17 @@ import { render } from "ink";
 import React from "react";
 
 import { logger } from "./logger.js";
+
+process.on("uncaughtException", (err) => {
+  logger.error("Uncaught exception", err);
+  process.exit(1);
+});
+
+process.on("unhandledRejection", (reason) => {
+  logger.error("Unhandled rejection", reason);
+  process.exit(1);
+});
+
 import { createPortDetector } from "./port/detector.js";
 import { createMitmProxy } from "./proxy/mitm.js";
 import { initToken, stopTokenRefresh } from "./proxy/token.js";
@@ -162,7 +173,7 @@ async function main() {
     (tlsSocket) => {
       tlsSocket.on("error", (err) => {
         if ((err as NodeJS.ErrnoException).code !== "ECONNRESET") {
-          console.error("[tls] socket error:", err.message);
+          logger.error("[tls] socket error", err);
         }
       });
 
@@ -337,6 +348,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error("Fatal:", err);
+  logger.error("Fatal error in main", err);
   process.exit(1);
 });

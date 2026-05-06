@@ -44,7 +44,7 @@ import {
   type SharerAccount,
 } from "./session/manager";
 import { App } from "./tui/App";
-import { ensureBore, startTunnel } from "./tunnel/index";
+import { isBoreInstalled, installBore, startTunnel } from "./tunnel/index";
 
 const CLAUDE_SHARE_CONFIG = path.join(os.homedir(), ".claude-share", "config.json");
 
@@ -123,11 +123,39 @@ async function promptDuration(): Promise<number> {
 async function main() {
   await checkForUpdate();
 
-  // Check bore before any other clack prompts — p.confirm() tears down stdin
-  // in a way that ink can't recover from if it runs last.
-  const useTunnel =
-    process.env.TUNNEL !== "0" && process.env.TUNNEL !== "false";
-  const boreReady = useTunnel ? await ensureBore() : false;
+  // Sharing-mode prompt MUST be first — ensureBore previously used p.confirm()
+  // which tears down stdin if any other prompt ran before it. By asking here
+  // we replace that confirm: choosing "internet" is implicit consent to install
+  // bore, so we only need a spinner (not a second confirm) if it's missing.
+  const envTunnel = process.env.TUNNEL !== "0" && process.env.TUNNEL !== "false";
+
+  let boreReady = false;
+  if (envTunnel) {
+    const shareMode = await p.select({
+      message: "How do you want to share?",
+      options: [
+        { value: "internet", label: "Internet", hint: "tunnels via bore" },
+        { value: "lan", label: "LAN only", hint: "experimental" },
+      ],
+    });
+    if (p.isCancel(shareMode)) {
+      p.cancel("Cancelled.");
+      process.exit(0);
+    }
+
+    if (shareMode === "internet") {
+      if (await isBoreInstalled()) {
+        boreReady = true;
+      } else {
+        try {
+          await installBore();
+          boreReady = true;
+        } catch {
+          p.log.warn("Could not install bore — sharing on LAN only.");
+        }
+      }
+    }
+  }
 
   p.intro("claude-share");
 

@@ -10,7 +10,7 @@ export interface Tunnel {
   close(): void;
 }
 
-async function isBoreInstalled(): Promise<boolean> {
+export async function isBoreInstalled(): Promise<boolean> {
   try {
     await execFileAsync("which", ["bore"]);
     return true;
@@ -19,7 +19,7 @@ async function isBoreInstalled(): Promise<boolean> {
   }
 }
 
-async function installBore(): Promise<void> {
+export async function installBore(): Promise<void> {
   const plat = process.platform;
 
   let bin: string;

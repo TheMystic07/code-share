@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import "@shared/patch-console";
 import { execFile } from "node:child_process";
 import fs from "node:fs";
 import net from "node:net";
@@ -20,7 +21,7 @@ import { logger } from "./logger";
 import pkg from "../package.json";
 
 if (process.argv.includes("-v") || process.argv.includes("--version")) {
-  console.log(pkg.version);
+  process.stdout.write(pkg.version + "\n");
   process.exit(0);
 }
 
@@ -232,7 +233,7 @@ async function main() {
     const session = getSession();
     return session ? checkMachineAuth(session, auth) : false;
   });
-  console.log("MITM proxy ready.");
+  logger.info("MITM proxy ready");
 
   // Mutable — publicUrl is filled in after the tunnel starts
   const urls = { public: null as string | null, lan: lanUrl };
@@ -369,7 +370,7 @@ async function main() {
       detector.listen(PORT, resolve);
     });
   });
-  console.log(`Listening on port ${PORT}`);
+  logger.info(`Listening on port ${PORT}`);
 
   let tunnel: Awaited<ReturnType<typeof startTunnel>>;
   let publicUrl: string | null = null;
@@ -378,7 +379,7 @@ async function main() {
   let rerenderApp: ((node: React.ReactElement) => void) | null = null;
 
   if (boreReady) {
-    console.log("Starting bore tunnel...");
+    logger.info("Starting bore tunnel");
     try {
       tunnel = await startTunnel(PORT, () => {
         tunnelDown = true;
@@ -390,13 +391,10 @@ async function main() {
       if (publicUrl) {
         tunnelStartedAt = new Date();
         logger.info(`Tunnel active: ${publicUrl}`);
-        console.log(`Tunnel active: ${publicUrl}`);
       } else {
-        console.warn("Unable to generate public URL");
-        logger.warn("bore did not return a port");
+        logger.warn("Unable to generate public URL: bore did not return a port");
       }
     } catch (err) {
-      console.warn("Unable to generate public URL:", (err as Error).message);
       logger.warn("Could not start bore tunnel", err);
       tunnel = { publicUrl: null, close: () => {} };
     }

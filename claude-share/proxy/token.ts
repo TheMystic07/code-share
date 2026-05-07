@@ -20,10 +20,6 @@ function scheduleTokenReread(creds: OAuthCredentials): void {
       cached = await platform().readOAuthCredentials();
       scheduleTokenReread(cached);
     } catch (err) {
-      console.error(
-        "[token] credential re-read failed, will retry in 60s:",
-        err,
-      );
       logger.error("[token] credential re-read failed", err);
       refreshTimer = setTimeout(() => scheduleTokenReread(creds), 60_000);
       refreshTimer.unref();

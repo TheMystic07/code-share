@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import "@shared/patch-console";
 import * as p from "@clack/prompts";
 
 import { platform } from "@shared/platforms";
@@ -6,7 +7,7 @@ import { checkForUpdate } from "@shared/checkVersion";
 import pkg from "../package.json";
 
 if (process.argv.includes("-v") || process.argv.includes("--version")) {
-  console.log(pkg.version);
+  process.stdout.write(pkg.version + "\n");
   process.exit(0);
 }
 import { pairFlow } from "./flows/pair";
@@ -88,9 +89,7 @@ if (args[0] === "--list" || args[0] === "-l") {
   const connectUrl = shareArg.slice("--share=".length).trim();
   const parsed = parseConnectUrl(connectUrl);
   if (!parsed) {
-    console.error(
-      "Invalid --share URL. Expected: http://host:port/connect/PAIRINGCODE",
-    );
+    p.log.error("Invalid --share URL. Expected: http://host:port/connect/PAIRINGCODE");
     process.exit(1);
   }
 

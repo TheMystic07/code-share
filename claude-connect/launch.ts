@@ -217,7 +217,7 @@ export async function launchClaude(
     const duration = Math.floor((Date.now() - startTime) / 1000);
     const mins = Math.floor(duration / 60);
     const secs = duration % 60;
-    console.log(`\nSession ended. Duration: ${mins}m ${secs}s`);
+    p.log.info(`Session ended. Duration: ${mins}m ${secs}s`);
     process.exit(code ?? 0);
   }
 
@@ -225,11 +225,9 @@ export async function launchClaude(
     void cleanupAndExit(code);
   });
   child.on("error", (err) => {
-    console.error("\nFailed to launch claude:", err.message);
     logger.error("Failed to launch claude process", err);
-    console.error(
-      "Is 'claude' installed? Run: npm install -g @anthropic-ai/claude-code",
-    );
+    p.log.error(`Failed to launch claude: ${err.message}`);
+    p.log.warn("Is 'claude' installed? Run: npm install -g @anthropic-ai/claude-code");
     if (heartbeat) clearInterval(heartbeat);
     if (sessionId) {
       void sessionPost(

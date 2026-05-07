@@ -277,12 +277,6 @@ export function App({
         </Box>
       )}
 
-      {IS_DEV && (
-        <Box marginTop={1}>
-          <Text dimColor>[dev] proxy log → claude-share-dev.log</Text>
-        </Box>
-      )}
-
       {/* Footer */}
       <Box marginTop={1} gap={2}>
         <Text dimColor>q quit</Text>

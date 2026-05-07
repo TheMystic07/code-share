@@ -1,5 +1,7 @@
 import net from "node:net";
 
+import { logger } from "../logger";
+
 type Handler = (socket: net.Socket) => void;
 
 interface PortDetectorOptions {
@@ -27,7 +29,7 @@ export function createPortDetector(options: PortDetectorOptions): net.Server {
 
     socket.on("error", (err) => {
       if ((err as NodeJS.ErrnoException).code !== "ECONNRESET") {
-        console.error("[detector] socket error:", err.message);
+        logger.error("[detector] socket error", err);
       }
     });
   });

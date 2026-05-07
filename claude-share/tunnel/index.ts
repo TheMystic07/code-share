@@ -5,6 +5,10 @@ import * as p from "@clack/prompts";
 
 const execFileAsync = promisify(execFile);
 
+// Baked in at build time via --define; fall back to bore.pub in dev mode.
+const BORE_SERVER = process.env.BORE_SERVER ?? "bore.pub";
+const BORE_PASSWORD = process.env.BORE_PASSWORD ?? "";
+
 export interface Tunnel {
   publicUrl: string | null;
   close(): void;
@@ -72,7 +76,10 @@ export async function ensureBore(): Promise<boolean> {
 
 export function startTunnel(localPort: number, onDown?: () => void): Promise<Tunnel> {
   return new Promise((resolve, reject) => {
-    const proc = spawn("bore", ["local", String(localPort), "--to", "bore.pub"], {
+    const args = ["local", String(localPort), "--to", BORE_SERVER];
+    if (BORE_PASSWORD) args.push("--secret", BORE_PASSWORD);
+
+    const proc = spawn("bore", args, {
       stdio: ["ignore", "pipe", "pipe"],
     });
 
@@ -88,14 +95,14 @@ export function startTunnel(localPort: number, onDown?: () => void): Promise<Tun
 
     function onData(chunk: Buffer) {
       const text = chunk.toString();
-      // bore prints: "listening at bore.pub:<port>"
-      const match = text.match(/listening at bore\.pub:(\d+)/i);
+      // bore prints: "listening at <server>:<port>"
+      const match = text.match(/listening at \S+:(\d+)/i);
       if (match && !settled) {
         settled = true;
         clearTimeout(timeout);
         const port = match[1];
         resolve({
-          publicUrl: `https://bore.pub:${port}`,
+          publicUrl: `https://${BORE_SERVER}:${port}`,
           close() {
             closing = true;
             proc.kill();

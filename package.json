@@ -25,7 +25,7 @@
     "access": "public"
   },
   "scripts": {
-    "build": "bun build claude-share/index.ts --outfile dist/claude-share/index.js --target node --production && bun build claude-connect/index.ts --outfile dist/claude-connect/index.js --target node --production",
+    "build": "bun scripts/build.ts",
     "dev:share": "bun claude-share/index.ts",
     "dev:connect": "bun claude-connect/index.ts",
     "start:share": "node dist/claude-share/index.js",

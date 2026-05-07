@@ -20,8 +20,11 @@ function build(entry: string, outfile: string, extraArgs: string[] = []) {
 }
 
 build("claude-share/index.ts", "dist/claude-share/index.js", [
+  "--define", `process.env.NODE_ENV="production"`,
   "--define", `process.env.BORE_SERVER=${JSON.stringify(boreServer)}`,
   "--define", `process.env.BORE_PASSWORD=${JSON.stringify(borePassword)}`,
 ]);
 
-build("claude-connect/index.ts", "dist/claude-connect/index.js");
+build("claude-connect/index.ts", "dist/claude-connect/index.js", [
+  "--define", `process.env.NODE_ENV="production"`,
+]);

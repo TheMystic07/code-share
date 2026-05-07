@@ -68,11 +68,11 @@ export async function resolveActiveUrl(
   const candidates: Array<{ url: string; timeout: number }> = [];
 
   if (conn.lanServerUrl) {
-    candidates.push({ url: conn.lanServerUrl, timeout: 1000 });
+    candidates.push({ url: conn.lanServerUrl, timeout: 1_000 });
   }
 
   if (conn.publicServerUrl) {
-    candidates.push({ url: conn.publicServerUrl, timeout: 2000 });
+    candidates.push({ url: conn.publicServerUrl, timeout: 5_000 });
   }
 
   const fallback: ResolvedUrl = {
@@ -84,7 +84,7 @@ export async function resolveActiveUrl(
   if (candidates.length === 0) return fallback;
 
   const overallTimeout = new Promise<ResolvedUrl>((resolve) =>
-    setTimeout(() => resolve(fallback), 3_000),
+    setTimeout(() => resolve(fallback), 5_000),
   );
 
   const race = Promise.any(

@@ -2,6 +2,7 @@ import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
+import { Transform } from "node:stream";
 
 import { Proxy } from "http-mitm-proxy";
 
@@ -167,8 +168,45 @@ export async function createMitmProxy(
 
     proxy.onResponse((ctx: any, callback: () => void) => {
       const logId = ctx[CTX_LOG_ID];
+      const status = ctx.serverToProxyResponse.statusCode ?? 0;
       if (logId !== undefined) {
-        setResponseStatus(logId, ctx.serverToProxyResponse.statusCode ?? 0);
+        setResponseStatus(logId, status);
+      }
+
+      // When Anthropic rejects with 401, the sharer's token is invalid/expired.
+      // Replace the body so the receiver sees the real cause instead of a generic
+      // "authentication_error" that looks like a proxy credentials problem.
+      const host = (ctx.clientToProxyRequest?.headers?.host ?? "").split(
+        ":",
+      )[0];
+      if (status === 401 && host === "api.anthropic.com") {
+        const body = Buffer.from(
+          JSON.stringify({
+            type: "error",
+            error: {
+              type: "authentication_error",
+              message:
+                "[claude-share] The sharer's Anthropic token is invalid or expired. ",
+            },
+          }),
+        );
+        const respHeaders = ctx.serverToProxyResponse.headers;
+        if (respHeaders) {
+          respHeaders["content-length"] = String(body.length);
+          delete respHeaders["content-encoding"];
+          delete respHeaders["transfer-encoding"];
+        }
+        ctx.addResponseFilter(
+          new Transform({
+            transform(_chunk, _enc, done) {
+              done(); // discard original 401 body
+            },
+            flush(done) {
+              this.push(body);
+              done();
+            },
+          }),
+        );
       }
 
       // Strip any response headers that could leak the sharer's credentials

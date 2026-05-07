@@ -52,6 +52,7 @@ import {
 } from "./session/manager";
 import { App } from "./tui/App";
 import { isBoreInstalled, installBore, startTunnel } from "./tunnel/index";
+import { verifyTokenOrExit } from "./proxy/verifyToken";
 
 const CLAUDE_SHARE_CONFIG = path.join(
   os.homedir(),
@@ -204,6 +205,7 @@ async function main() {
   }
 
   await initToken();
+  await verifyTokenOrExit();
 
   const duration = await promptDuration();
   const session = createSession(duration);

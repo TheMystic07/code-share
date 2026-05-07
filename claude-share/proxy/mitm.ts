@@ -87,11 +87,17 @@ export async function createMitmProxy(
     const proxy = new Proxy();
     proxy.use(Proxy.gunzip);
 
+    // The library calls console.error() before invoking onError handlers, so we
+    // patch _onError directly to suppress benign keep-alive teardowns at the source.
+    const _origOnError = (proxy as any)._onError.bind(proxy);
+    (proxy as any)._onError = (kind: string, ctx: any, err: Error) => {
+      const code = (err as NodeJS.ErrnoException)?.code;
+      if (code === "ECONNRESET" || code === "HPE_INVALID_EOF_STATE") return;
+      _origOnError(kind, ctx, err);
+    };
+
     proxy.onError((ctx: any, err: any) => {
       if (!err) return;
-      const code = (err as NodeJS.ErrnoException).code;
-      // ECONNRESET and HPE_INVALID_EOF_STATE are benign keep-alive teardowns
-      if (code === "ECONNRESET" || code === "HPE_INVALID_EOF_STATE") return;
       logger.error("[mitm] proxy error", err);
     });
 

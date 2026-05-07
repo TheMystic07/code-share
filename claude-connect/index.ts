@@ -3,6 +3,12 @@ import * as p from "@clack/prompts";
 
 import { platform } from "@shared/platforms";
 import { checkForUpdate } from "@shared/checkVersion";
+import pkg from "../package.json";
+
+if (process.argv.includes("-v") || process.argv.includes("--version")) {
+  console.log(pkg.version);
+  process.exit(0);
+}
 import { pairFlow } from "./flows/pair";
 import { reconnectFlow } from "./flows/reconnect";
 import { listFlow } from "./flows/list";

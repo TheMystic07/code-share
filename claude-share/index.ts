@@ -17,6 +17,12 @@ import React from "react";
 import { platform } from "@shared/platforms";
 import { checkForUpdate } from "@shared/checkVersion";
 import { logger } from "./logger";
+import pkg from "../package.json";
+
+if (process.argv.includes("-v") || process.argv.includes("--version")) {
+  console.log(pkg.version);
+  process.exit(0);
+}
 
 process.on("uncaughtException", (err) => {
   logger.error("Uncaught exception", err);

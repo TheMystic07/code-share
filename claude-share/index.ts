@@ -228,11 +228,17 @@ async function main() {
   let lanUrl = lanIp ? `https://${lanIp}:${PORT}` : null;
   let loopbackUrl = `http://localhost:${PORT}`;
 
+  const boreServer = process.env.BORE_SERVER ?? "bore.pub";
+
   // MITM proxy resolves only after its RSA CA is ready (no race on CONNECT)
-  const mitmProxy = await createMitmProxy(lanIp, (auth) => {
-    const session = getSession();
-    return session ? checkMachineAuth(session, auth) : false;
-  });
+  const mitmProxy = await createMitmProxy(
+    lanIp,
+    (auth) => {
+      const session = getSession();
+      return session ? checkMachineAuth(session, auth) : false;
+    },
+    boreServer,
+  );
   logger.info("MITM proxy ready");
 
   // Mutable — publicUrl is filled in after the tunnel starts

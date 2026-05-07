@@ -74,6 +74,7 @@ export interface MitmProxy {
 export async function createMitmProxy(
   lanIp: string | null = null,
   checkAuth: (authHeader: string) => boolean = () => false,
+  publicHostname: string = "bore.pub",
 ): Promise<MitmProxy> {
   const sslCaDir = await fs.promises.mkdtemp(
     path.join(os.tmpdir(), "claude-share-mitm-"),
@@ -235,6 +236,7 @@ export async function createMitmProxy(
             caCertPem,
             caKeyPem,
             lanIp,
+            publicHostname,
           );
 
           for (const s of pendingSockets) pipeToProxy(s);

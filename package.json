@@ -1,6 +1,6 @@
 {
   "name": "@0xpv/claude-share",
-  "version": "0.16.0-beta",
+  "version": "1.0.0",
   "description": "Share or connect to a friend's Claude Code subscription",
   "type": "module",
   "license": "MIT",

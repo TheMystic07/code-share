@@ -48,12 +48,12 @@ export function getDeviceName(): string {
 }
 
 export function hasAgreedToTerms(): boolean {
-  return readConfig()?.hasTermsAgreed === true;
+  return readConfig()?.hasConnectTermsAgreed === true;
 }
 
 export function saveTermsAgreed(): void {
   const cfg = readConfig() ?? { deviceName: os.hostname() };
-  writeConfig({ ...cfg, hasTermsAgreed: true });
+  writeConfig({ ...cfg, hasConnectTermsAgreed: true });
 }
 
 // ── Connection persistence ────────────────────────────────────────────────────

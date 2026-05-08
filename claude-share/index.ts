@@ -65,7 +65,7 @@ function hasAgreedToTerms(): boolean {
     const cfg = JSON.parse(
       fs.readFileSync(CLAUDE_SHARE_CONFIG, "utf8"),
     ) as Record<string, unknown>;
-    return cfg["hasTermsAgreed"] === true;
+    return cfg["hasShareTermsAgreed"] === true;
   } catch {
     return false;
   }
@@ -81,7 +81,7 @@ function saveTermsAgreed(): void {
       unknown
     >;
   } catch {}
-  cfg["hasTermsAgreed"] = true;
+  cfg["hasShareTermsAgreed"] = true;
   fs.writeFileSync(CLAUDE_SHARE_CONFIG, JSON.stringify(cfg, null, 2), {
     mode: 0o600,
   });
@@ -147,10 +147,26 @@ async function main() {
 
   await checkForUpdate();
 
-  // Sharing-mode prompt MUST be first — ensureBore previously used p.confirm()
-  // which tears down stdin if any other prompt ran before it. By asking here
-  // we replace that confirm: choosing "internet" is implicit consent to install
-  // bore, so we only need a spinner (not a second confirm) if it's missing.
+  p.intro("claude-share");
+
+  if (!hasAgreedToTerms()) {
+    p.log.warn(
+      "You are sharing your Anthropic subscription at your own risk.\n" +
+        "This is an open-source project and we are not liable for any damage or\n" +
+        "suspension of your Claude Code subscription. Make sure you trust the\n" +
+        "person you are sharing your subscription with.",
+    );
+    const agreed = await p.confirm({
+      message: "Do you understand and want to continue?",
+      initialValue: false,
+    });
+    if (p.isCancel(agreed) || !agreed) {
+      p.cancel("Cancelled.");
+      process.exit(0);
+    }
+    saveTermsAgreed();
+  }
+
   const envTunnel =
     process.env.TUNNEL !== "0" && process.env.TUNNEL !== "false";
 
@@ -188,25 +204,6 @@ async function main() {
         }
       }
     }
-  }
-
-  p.intro("claude-share");
-
-  if (!hasAgreedToTerms()) {
-    p.log.warn(
-      "You are sharing your Anthropic subscription at your own risk.\n" +
-        "This is an open-source project — you are free to try it out, but make\n" +
-        "sure you trust the person you are sharing your subscription with.",
-    );
-    const agreed = await p.confirm({
-      message: "Do you understand and want to continue?",
-      initialValue: false,
-    });
-    if (p.isCancel(agreed) || !agreed) {
-      p.cancel("Cancelled.");
-      process.exit(0);
-    }
-    saveTermsAgreed();
   }
 
   await initToken();
@@ -405,7 +402,9 @@ async function main() {
         tunnelStartedAt = new Date();
         logger.info(`Tunnel active: ${publicUrl}`);
       } else {
-        logger.warn("Unable to generate public URL: bore did not return a port");
+        logger.warn(
+          "Unable to generate public URL: bore did not return a port",
+        );
       }
     } catch (err) {
       logger.warn("Could not start bore tunnel", err);

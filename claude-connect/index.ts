@@ -71,8 +71,8 @@ if (!hasAgreedToTerms()) {
   p.intro("claude-connect");
   p.log.warn(
     "You are connecting to someone else's Anthropic subscription at your own risk.\n" +
-    "This is an open-source project — you are free to try it out, but make\n" +
-    "sure you trust the person sharing their subscription with you.",
+      "By design, the sharer's machine can see your Claude Code messages, so make\n" +
+      "sure you trust the person sharing their subscription with you.",
   );
   const agreed = await p.confirm({
     message: "Do you understand and want to continue?",
@@ -95,7 +95,9 @@ if (args[0] === "--list" || args[0] === "-l") {
   const connectUrl = shareArg.slice("--share=".length).trim();
   const parsed = parseConnectUrl(connectUrl);
   if (!parsed) {
-    p.log.error("Invalid --share URL. Expected: claudeshare://host:port/connect/CODE");
+    p.log.error(
+      "Invalid --share URL. Expected: claudeshare://host:port/connect/CODE",
+    );
     process.exit(1);
   }
 

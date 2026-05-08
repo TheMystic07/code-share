@@ -31,9 +31,9 @@ export async function pairFlow(
       message: "Connect link or sharer URL:",
       placeholder: "claudeshare://192.168.x.x:2586/connect/CODE",
       validate: (v) =>
-        v?.startsWith("claudeshare://") || v?.startsWith("http")
+        v?.startsWith("claudeshare://") || v?.startsWith("https://")
           ? undefined
-          : "Must be a claudeshare:// or http:// URL",
+          : "Must be a claudeshare:// URL",
     });
     if (p.isCancel(input)) {
       p.cancel("Cancelled.");

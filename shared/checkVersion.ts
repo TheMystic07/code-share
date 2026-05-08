@@ -152,7 +152,7 @@ async function detectPackageManager(): Promise<string | null> {
   else if (execPath.includes("pnpm")) candidates.unshift("pnpm");
   else if (execPath.includes("yarn")) candidates.unshift("yarn");
 
-  for (const pm of [...new Set(candidates)]) {
+  for (const pm of new Set(candidates)) {
     try {
       await execFileAsync(process.platform === "win32" ? "where" : "which", [pm]);
       return pm;

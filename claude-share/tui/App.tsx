@@ -119,7 +119,8 @@ export function App({
   }, [machines.length]);
 
   const connectUrl = useCallback(
-    (base: string) => `${base}/connect/${pairingCode}`,
+    (base: string) =>
+      `claudeshare://${base.replace(/^https?:\/\//, "")}/connect/${pairingCode}`,
     [pairingCode],
   );
 

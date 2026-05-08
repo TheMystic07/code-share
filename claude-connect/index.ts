@@ -95,7 +95,7 @@ if (args[0] === "--list" || args[0] === "-l") {
   const connectUrl = shareArg.slice("--share=".length).trim();
   const parsed = parseConnectUrl(connectUrl);
   if (!parsed) {
-    p.log.error("Invalid --share URL. Expected: http://host:port/connect/PAIRINGCODE");
+    p.log.error("Invalid --share URL. Expected: claudeshare://host:port/connect/PAIRINGCODE");
     process.exit(1);
   }
 

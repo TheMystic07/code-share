@@ -1,6 +1,6 @@
 {
   "name": "@0xpv/claude-share",
-  "version": "0.14.0-beta",
+  "version": "0.15.0-beta",
   "description": "Share or connect to a Claude Code subscription",
   "type": "module",
   "license": "MIT",
@@ -32,6 +32,7 @@
     "start:connect": "node dist/claude-connect/index.js",
     "lint": "oxlint claude-share/src claude-connect/src shared",
     "fmt": "oxfmt --config .oxfmtrc.json claude-share/src claude-connect/src shared",
+    "postinstall": "node dist/postinstall.js || true",
     "prepublishOnly": "npm run lint && npm run build"
   },
   "dependencies": {
@@ -42,6 +43,7 @@
     "http-mitm-proxy": "^1.1.0",
     "ink": "^7.0.1",
     "node-forge": "^1.4.0",
+    "protocol-registry": "^2.0.0",
     "react": "^19.2.5"
   },
   "overrides": {

@@ -219,8 +219,9 @@ export function App({
               </Box>
             )}
           </Box>
-          <Box marginTop={1}>
+          <Box flexDirection="column" marginTop={1} gap={0}>
             <Text dimColor>One-time code — only one machine can use it.</Text>
+            <Text dimColor>Ask your friend to run <Text color="white">claude-connect</Text> and paste the link above.</Text>
           </Box>
         </Box>
       )}

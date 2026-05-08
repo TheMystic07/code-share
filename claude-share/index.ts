@@ -16,7 +16,7 @@ import { render } from "ink";
 import React from "react";
 
 import { platform } from "@shared/platforms";
-import { checkForUpdate } from "@shared/checkVersion";
+import { checkForUpdate, forceUpgrade } from "@shared/checkVersion";
 import { logger } from "./logger";
 import pkg from "../package.json";
 
@@ -140,6 +140,11 @@ async function promptDuration(): Promise<number> {
 }
 
 async function main() {
+  if (process.argv.includes("--upgrade")) {
+    await forceUpgrade();
+    return;
+  }
+
   await checkForUpdate();
 
   // Sharing-mode prompt MUST be first — ensureBore previously used p.confirm()

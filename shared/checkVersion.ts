@@ -100,11 +100,18 @@ function isNewer(latest: string, current: string): boolean {
 
 // ── Background version fetch ──────────────────────────────────────────────────
 
-function latestStableVersion(versions: Record<string, unknown>): string | null {
-  // Keep only versions with no pre-release identifier, then return the highest
-  const stable = Object.keys(versions).filter((v) => !v.includes("-"));
-  if (stable.length === 0) return null;
-  return stable.reduce((best, v) => (isNewer(v, best) ? v : best), stable[0]!);
+function latestPublishedVersion(json: Record<string, unknown>): string | null {
+  // Prefer dist-tags.latest — npm's authoritative "current" tag.
+  const distTags = json["dist-tags"] as Record<string, string> | undefined;
+  if (distTags?.["latest"]) return distTags["latest"];
+
+  // Fall back: highest stable version, then highest pre-release.
+  const versions = (json["versions"] ?? {}) as Record<string, unknown>;
+  const all = Object.keys(versions);
+  if (all.length === 0) return null;
+  const stable = all.filter((v) => !v.includes("-"));
+  const pool = stable.length > 0 ? stable : all;
+  return pool.reduce((best, v) => (isNewer(v, best) ? v : best), pool[0]!);
 }
 
 function scheduleVersionCheck(): void {
@@ -127,8 +134,7 @@ function scheduleVersionCheck(): void {
       }
 
       const json = JSON.parse(text) as Record<string, unknown>;
-      const versions = (json["versions"] ?? {}) as Record<string, unknown>;
-      const latest = latestStableVersion(versions);
+      const latest = latestPublishedVersion(json);
       if (!latest) return;
 
       // Set or clear the flag so the next startup knows what to do
@@ -189,6 +195,51 @@ async function attemptUpgrade(): Promise<void> {
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
+
+export async function forceUpgrade(): Promise<void> {
+  p.intro("upgrade");
+
+  const spin = p.spinner();
+  spin.start("Checking latest version…");
+
+  let latest: string | null = null;
+  let fetchError: string | null = null;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10_000);
+  try {
+    const res = await fetch(REGISTRY_URL, {
+      signal: controller.signal,
+      headers: { Accept: "application/vnd.npm.install-v1+json" },
+    });
+    clearTimeout(timer);
+    if (res.ok) {
+      const json = JSON.parse((await res.text()).trim()) as Record<string, unknown>;
+      latest = latestPublishedVersion(json);
+      if (!latest) fetchError = "No versions found in registry.";
+    } else {
+      fetchError = `Registry returned HTTP ${res.status}`;
+    }
+  } catch (err) {
+    clearTimeout(timer);
+    fetchError = (err as Error).message ?? String(err);
+  }
+
+  if (!latest) {
+    spin.stop(`Could not check for updates: ${fetchError}`);
+    p.log.info(`Run manually: npm install -g ${PACKAGE_NAME}@latest`);
+    process.exit(1);
+  }
+
+  if (!isNewer(latest, CURRENT_VERSION)) {
+    spin.stop(`Already on the latest version (${CURRENT_VERSION}).`);
+    p.outro("Nothing to upgrade.");
+    process.exit(0);
+  }
+
+  spin.stop(`New version available: ${latest} (current: ${CURRENT_VERSION})`);
+  await attemptUpgrade();
+}
 
 /**
  * Call once at CLI startup.

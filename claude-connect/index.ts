@@ -3,13 +3,19 @@ import "@shared/patch-console";
 import * as p from "@clack/prompts";
 
 import { platform } from "@shared/platforms";
-import { checkForUpdate } from "@shared/checkVersion";
+import { checkForUpdate, forceUpgrade } from "@shared/checkVersion";
 import pkg from "../package.json";
 
 if (process.argv.includes("-v") || process.argv.includes("--version")) {
   process.stdout.write(pkg.version + "\n");
   process.exit(0);
 }
+
+if (process.argv.includes("--upgrade")) {
+  await forceUpgrade();
+  process.exit(0);
+}
+
 import { pairFlow } from "./flows/pair";
 import { reconnectFlow } from "./flows/reconnect";
 import { listFlow } from "./flows/list";

@@ -19,14 +19,14 @@ export function decryptBlob(blob: string, pairingCode: string): ConnectionFile {
   return JSON.parse(new TextDecoder().decode(plaintext)) as ConnectionFile;
 }
 
-// Format: claudeshare://host:port/connect/<pairingCode>  (or http/https for backwards compat)
+// Format: claudeshare://host:port/connect/<pairingCode>  (or https:// for backwards compat)
 // The server does not need to handle this path — it's parsed client-side only.
 export function parseConnectUrl(
   url: string,
 ): { serverUrl: string; pairingCode: string } | null {
   if (!/^(claudeshare|https):\/\//.test(url)) return null;
-  const normalised = url.replace(/^claudeshare:\/\//, "http://").replace(/^https:\/\//, "http://");
-  const match = normalised.match(/^(http:\/\/.+?)\/connect\/([A-Za-z0-9]+)$/);
+  const normalised = url.replace(/^claudeshare:\/\//, "https://");
+  const match = normalised.match(/^(https:\/\/.+?)\/connect\/([A-Za-z0-9]+)$/);
   if (!match) return null;
   return { serverUrl: match[1], pairingCode: match[2] };
 }

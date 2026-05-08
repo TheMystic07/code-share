@@ -59,7 +59,8 @@ export async function ensureCredentials() {
     "No Claude credentials found. Claude needs this to think you're logged in.",
   );
   const confirm = await p.confirm({
-    message: "Create placeholder credentials so Claude launches without a login prompt?",
+    message:
+      "Create placeholder credentials so Claude launches without a login prompt?",
     initialValue: true,
   });
   if (p.isCancel(confirm) || !confirm) {
@@ -87,7 +88,9 @@ export async function sessionPost(
   caPem?: string,
   proxyAuth?: string,
 ): Promise<Record<string, unknown>> {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
   if (proxyAuth) headers["Proxy-Authorization"] = proxyAuth;
   const r = await apiFetch(`${serverUrl}${endpoint}`, {
     method: "POST",
@@ -170,12 +173,8 @@ export async function launchClaude(
       }, 30_000)
     : null;
 
-  p.log.success(
-    `Launching Claude via ${meta.systemName}. All API calls proxied through sharer.`,
-  );
+  p.log.success(`Launching Claude via ${meta.systemName}...`);
 
-  if (claudeArgs.length > 0) p.log.info(`Extra args: ${claudeArgs.join(" ")}`);
-  p.log.info("Press Ctrl+C to exit and disconnect.");
   p.outro("");
 
   const startTime = Date.now();
@@ -224,10 +223,13 @@ export async function launchClaude(
   child.on("exit", (code) => {
     void cleanupAndExit(code);
   });
+
   child.on("error", (err) => {
     logger.error("Failed to launch claude process", err);
     p.log.error(`Failed to launch claude: ${err.message}`);
-    p.log.warn("Is 'claude' installed? Run: npm install -g @anthropic-ai/claude-code");
+    p.log.warn(
+      "Is 'claude' installed? Run: npm install -g @anthropic-ai/claude-code",
+    );
     if (heartbeat) clearInterval(heartbeat);
     if (sessionId) {
       void sessionPost(

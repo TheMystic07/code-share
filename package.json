@@ -1,7 +1,7 @@
 {
   "name": "@0xpv/claude-share",
   "version": "0.16.0-beta",
-  "description": "Share or connect to a Claude Code subscription",
+  "description": "Share or connect to a friend's Claude Code subscription",
   "type": "module",
   "license": "MIT",
   "keywords": [
@@ -21,6 +21,10 @@
   "files": [
     "dist"
   ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/prathamVaidya/claude-share"
+  },
   "publishConfig": {
     "access": "public"
   },

@@ -37,7 +37,7 @@ export function ensureOnboarding() {
 
 const PLACEHOLDER_CREDENTIALS = {
   claudeAiOauth: {
-    accessToken: "claude-share",
+    accessToken: "1234",
     refreshToken: "",
     expiresAt: 4102444800000,
     scopes: [

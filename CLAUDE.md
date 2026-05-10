@@ -1,4 +1,4 @@
-# claude-relay
+# claude-share
 
 Single npm package (`@0xpv/claude-share`) exposing two binaries: `claude-share` (sharer) and `claude-connect` (receiver). Source lives in `claude-share/src/` and `claude-connect/src/` respectively; both compile into their own `dist/` via the root `package.json`.
 

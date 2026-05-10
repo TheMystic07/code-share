@@ -16,7 +16,9 @@ export function platform(): PlatformOps {
 
   const p = process.platform as SupportedPlatform;
   if (!(p in SUPPORTED)) {
-    process.stderr.write(`Unsupported platform: "${process.platform}". claude-relay supports macOS (darwin) and Linux.\n`);
+    process.stderr.write(
+      `Unsupported platform: "${process.platform}". claude-share supports macOS (darwin) and Linux.\n`,
+    );
     process.exit(1);
   }
 

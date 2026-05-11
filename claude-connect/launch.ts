@@ -127,7 +127,7 @@ export async function launchClaude(
 
   if (sharerAccount) {
     p.log.info(
-      `Connecting as ${sharerAccount.displayName} (${sharerAccount.emailAddress})`,
+      `Account: ${sharerAccount.displayName} (${sharerAccount.emailAddress})`,
     );
   }
 
@@ -173,7 +173,7 @@ export async function launchClaude(
       }, 30_000)
     : null;
 
-  p.log.success(`Launching Claude via ${meta.systemName}...`);
+  p.log.success("\x1b[32mLaunching Claude...\x1b[0m");
 
   p.outro("");
 

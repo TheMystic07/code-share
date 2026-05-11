@@ -175,7 +175,9 @@ async function main() {
     process.env.TUNNEL !== "0" && process.env.TUNNEL !== "false";
 
   let boreReady = false;
-  if (envTunnel) {
+  if (!envTunnel) {
+    p.log.info("TUNNEL=0 — sharing on LAN only.");
+  } else {
     const shareMode = await p.select({
       message: "How do you want to share?",
       options: [

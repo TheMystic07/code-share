@@ -73,7 +73,12 @@ function copyToClipboard(text: string): void {
     args = ["-selection", "clipboard"];
   }
   const proc = spawn(cmd, args, { stdio: ["pipe", "ignore", "ignore"] });
-  proc.on("error", () => {}); // silently ignore if clipboard tool not installed
+  proc.on("error", () => {
+    // fallback: OSC 52 — works in most modern terminals without external tools
+    process.stdout.write(
+      `\x1b]52;c;${Buffer.from(text).toString("base64")}\x07`,
+    );
+  });
   proc.stdin.write(text);
   proc.stdin.end();
 }

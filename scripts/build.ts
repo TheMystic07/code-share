@@ -2,8 +2,8 @@
 // Build script that bakes BORE_SERVER and BORE_PASSWORD into the claude-share bundle at compile time.
 // Override defaults by setting the env vars before running: BORE_SERVER=my.server bun run build
 
-const boreServer = process.env.BORE_SERVER ?? "bore.pub";
-const borePassword = process.env.BORE_PASSWORD ?? "";
+const boreServer = process.env.BORE_SERVER || "bore.pub";
+const borePassword = process.env.BORE_PASSWORD || "";
 
 function build(entry: string, outfile: string, extraArgs: string[] = []) {
   const result = Bun.spawnSync(

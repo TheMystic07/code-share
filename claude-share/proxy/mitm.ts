@@ -215,6 +215,7 @@ export async function createMitmProxy(
         delete respHeaders["authorization"];
         delete respHeaders["set-cookie"];
         delete respHeaders["x-api-key"];
+        delete respHeaders["anthropic-organization-id"];
       }
 
       callback();

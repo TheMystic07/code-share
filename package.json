@@ -1,6 +1,6 @@
 {
   "name": "@0xpv/claude-share",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "description": "Share or connect to a friend's Claude Code subscription",
   "type": "module",
   "license": "MIT",
@@ -15,15 +15,15 @@
     "node": ">=18"
   },
   "bin": {
-    "claude-share": "./dist/claude-share/index.js",
-    "claude-connect": "./dist/claude-connect/index.js"
+    "claude-share": "dist/claude-share/index.js",
+    "claude-connect": "dist/claude-connect/index.js"
   },
   "files": [
     "dist"
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/prathamVaidya/claude-share"
+    "url": "git+https://github.com/prathamVaidya/claude-share.git"
   },
   "publishConfig": {
     "access": "public"
@@ -52,6 +52,7 @@
     "uuid": "^14.0.0"
   },
   "devDependencies": {
+    "@types/bun": "^1.3.13",
     "@types/node": "latest",
     "@types/node-forge": "1.3.14",
     "@types/react": "latest",

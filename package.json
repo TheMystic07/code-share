@@ -49,7 +49,7 @@
     "react": "^19.2.5"
   },
   "overrides": {
-    "uuid": "^11.0.0"
+    "uuid": "^14.0.0"
   },
   "devDependencies": {
     "@types/node": "latest",

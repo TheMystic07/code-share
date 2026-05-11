@@ -28,5 +28,3 @@ build("claude-share/index.ts", "dist/claude-share/index.js", [
 build("claude-connect/index.ts", "dist/claude-connect/index.js", [
   "--define", `process.env.NODE_ENV="production"`,
 ]);
-
-build("scripts/postinstall.ts", "dist/postinstall.js");

@@ -141,9 +141,13 @@ export function App({
       }
     }
 
-    if (view === "sessions" && key.escape) {
-      setView("machines");
-      setSelectedMachineId(null);
+    if (key.escape) {
+      if (view === "sessions") {
+        setView("machines");
+        setSelectedMachineId(null);
+      } else if (view === "pairing" && machines.length > 0) {
+        setView("machines");
+      }
     }
 
     if (input === "n" && view !== "pairing") {
@@ -177,7 +181,9 @@ export function App({
         {tunnelDown && (
           <Text color="red">
             ⚠ tunnel disconnected — receivers can't connect
-            {tunnelStartedAt ? ` (Active for ${formatDuration(tunnelStartedAt)})` : ""}
+            {tunnelStartedAt
+              ? ` (Active for ${formatDuration(tunnelStartedAt)})`
+              : ""}
           </Text>
         )}
       </Box>
@@ -195,33 +201,36 @@ export function App({
             Waiting for a machine to connect…
           </Text>
           <Box flexDirection="column" marginTop={1} gap={0}>
-            {lanUrl && (
-              <Box gap={1}>
-                <Text dimColor>LAN </Text>
-                <Text bold>{connectUrl(lanUrl)}</Text>
-              </Box>
-            )}
             {publicUrl ? (
-              <Box gap={1}>
-                <Text dimColor>Public</Text>
+              <Box>
+                <Box minWidth={10}><Text dimColor>Public</Text></Box>
                 <Text>{connectUrl(publicUrl)}</Text>
               </Box>
             ) : (
-              <Box gap={1}>
-                <Text dimColor>Public</Text>
+              <Box>
+                <Box minWidth={10}><Text dimColor>Public</Text></Box>
                 <Text dimColor>not available — local network only</Text>
               </Box>
             )}
+            {lanUrl && (
+              <Box>
+                <Box minWidth={10}><Text dimColor>LAN</Text></Box>
+                <Text bold>{connectUrl(lanUrl)}</Text>
+              </Box>
+            )}
             {IS_DEV && (
-              <Box gap={1}>
-                <Text dimColor>Local </Text>
+              <Box>
+                <Box minWidth={10}><Text dimColor>Local</Text></Box>
                 <Text dimColor>{connectUrl(loopbackUrl)}</Text>
               </Box>
             )}
           </Box>
           <Box flexDirection="column" marginTop={1} gap={0}>
             <Text dimColor>One-time code — only one machine can use it.</Text>
-            <Text dimColor>Ask your friend to run <Text color="white">claude-connect</Text> and paste the link above.</Text>
+            <Text dimColor>
+              Ask your friend to run <Text color="white">claude-connect</Text>{" "}
+              and paste the link above.
+            </Text>
           </Box>
         </Box>
       )}
@@ -264,9 +273,7 @@ export function App({
             <Text dimColor>No sessions yet.</Text>
           ) : (
             [...selectedMachine.sessions.values()]
-              .sort(
-                (a, b) => a.startedAt.getTime() - b.startedAt.getTime(),
-              )
+              .sort((a, b) => a.startedAt.getTime() - b.startedAt.getTime())
               .map((s, i) => (
                 <Box key={s.id} gap={2}>
                   <Text color={s.active ? "green" : "gray"}>●</Text>
@@ -282,6 +289,9 @@ export function App({
       {/* Footer */}
       <Box marginTop={1} gap={2}>
         <Text dimColor>q quit</Text>
+        {view === "pairing" && machines.length > 0 && (
+          <Text dimColor>esc back</Text>
+        )}
         {view === "pairing" &&
           (copied ? (
             <Text color="green">✓ copied!</Text>

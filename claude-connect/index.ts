@@ -70,9 +70,12 @@ pruneExpiredConnections();
 if (!hasAgreedToTerms()) {
   p.intro("claude-connect");
   p.log.warn(
-    "You are connecting to someone else's Anthropic subscription at your own risk.\n" +
-      "By design, the sharer's machine can see your Claude Code messages, so make\n" +
-      "sure you trust the person sharing their subscription with you.",
+    "Heads up: you're connecting to someone else's Claude Code at your own discretion.\n" +
+      "By design, the sharer's machine could potentially see your Claude Code messages\n" +
+      "if they're running a modified, unofficial build of this program. Please connect\n" +
+      "only to people you trust.\n\n" +
+      "Once connected, you might still see your own email or organization name shown\n" +
+      "in Claude Code. That's expected behavior and safe to ignore.",
   );
   const agreed = await p.confirm({
     message: "Do you understand and want to continue?",

@@ -151,10 +151,14 @@ async function main() {
 
   if (!hasAgreedToTerms()) {
     p.log.warn(
-      "You are sharing your Anthropic subscription at your own risk.\n" +
+      "Heads up: You're sharing your Claude Code at your own risk.\n" +
         "This is an open-source project and we are not liable for any damage or\n" +
         "suspension of your Claude Code subscription. Make sure you trust the\n" +
-        "person you are sharing your subscription with.",
+        "person you are sharing your subscription with.\n\n" +
+        "This CLI is built to share your Claude Code with a few friends in need.\n" +
+        "Sharing it with a lot of people can be a direct recipe for an account ban.\n" +
+        "We love Claude Code and the purpose of this CLI is to help your friends\n" +
+        "sometimes when they've hit their limit or just want to try it out.",
     );
     const agreed = await p.confirm({
       message: "Do you understand and want to continue?",

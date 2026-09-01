@@ -1,6 +1,6 @@
 # code-share
 
-Single npm package (`@themystic07/code-share`, a renamed fork of `@0xpv/claude-share`) exposing two binaries: `code-share` (sharer) and `code-connect` (receiver). State lives in `~/.code-share` (`shared/paths.ts` migrates `~/.claude-share` on first run); connect links use `codeshare://` but `claudeshare://` is still parsed. Source lives in `code-share/` and `code-connect/` (shared code in `shared/`); both compile into `dist/` via `bun run build`. Supported on macOS, Linux and Windows on both sides.
+Single npm package (`@gurshabad90/code-share`, a renamed fork of `@0xpv/claude-share`) exposing two binaries: `code-share` (sharer) and `code-connect` (receiver). State lives in `~/.code-share` (`shared/paths.ts` migrates `~/.claude-share` on first run); connect links use `codeshare://` but `claudeshare://` is still parsed. Source lives in `code-share/` and `code-connect/` (shared code in `shared/`); both compile into `dist/` via `bun run build`. Supported on macOS, Linux and Windows on both sides.
 
 ## Dev commands
 

@@ -11,11 +11,26 @@ import { logger } from "../logger";
 
 const execFileAsync = promisify(execFile);
 
-// Baked in at build time via --define; fall back to bore.pub in dev mode.
-const BORE_SERVER = process.env.BORE_SERVER ?? "bore.pub";
-const BORE_PASSWORD = process.env.BORE_PASSWORD ?? "";
-
 const IS_WIN = process.platform === "win32";
+
+// Bore server + secret: baked in at build time via --define when BORE_SERVER /
+// BORE_PASSWORD are set during `bun run build`; otherwise resolved at runtime
+// from the environment, then ~/.code-share/config.json (`boreServer`,
+// `boreSecret`), then bore.pub.
+function readShareConfig(): Record<string, unknown> {
+  try {
+    return JSON.parse(
+      fs.readFileSync(path.join(os.homedir(), ".code-share", "config.json"), "utf8"),
+    ) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+const _cfg = readShareConfig();
+const BORE_SERVER: string =
+  process.env.BORE_SERVER || (typeof _cfg["boreServer"] === "string" && _cfg["boreServer"]) || "bore.pub";
+const BORE_PASSWORD: string =
+  process.env.BORE_PASSWORD || (typeof _cfg["boreSecret"] === "string" && _cfg["boreSecret"]) || "";
 
 // Where we install bore when it isn't already in PATH
 const BORE_LOCAL_PATH = IS_WIN

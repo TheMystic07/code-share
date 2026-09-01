@@ -2,7 +2,7 @@
 
 Securely share your Claude Code subscription with your other machines (or a friend).
 
-> Fork of [`@0xpv/claude-share`](https://github.com/prathamVaidya/claude-share), renamed to `code-share` / `code-connect` and published as `@themystic07/code-share`. Old `claudeshare://` links and `~/.claude-share` state are still accepted/migrated.
+> Fork of [`@0xpv/claude-share`](https://github.com/prathamVaidya/claude-share), renamed to `code-share` / `code-connect` and published as `@gurshabad90/code-share`. Old `claudeshare://` links and `~/.claude-share` state are still accepted/migrated.
 
 One machine runs **code-share** to expose its Claude credentials through a local proxy. Other machines run **code-connect** to connect and use Claude Code as if they had their own subscription.
 
@@ -33,7 +33,7 @@ claude (CLI)                        code-share
 ## Install
 
 ```bash
-npm install -g @themystic07/code-share
+npm install -g @gurshabad90/code-share
 ```
 
 This installs both `code-share` and `code-connect` binaries.
@@ -82,10 +82,10 @@ The receiver machine does **not** need a Claude subscription or login: placehold
 
 ```bash
 # Sharer
-npx @themystic07/code-share
+npx @gurshabad90/code-share
 
 # Receiver
-npx -p @themystic07/code-share code-connect --share <connect-url>
+npx -p @gurshabad90/code-share code-connect --share <connect-url>
 ```
 
 ---

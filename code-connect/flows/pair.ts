@@ -16,6 +16,7 @@ import type { ConnectionFile, SavedConnection } from "../types";
 export async function pairFlow(
   prefill?: { serverUrl: string; pairingCode: string },
   claudeArgs: string[] = [],
+  launchOpts: { noUpdate?: boolean } = {},
 ) {
   p.intro("code-connect — pair with a new sharer");
 
@@ -143,5 +144,6 @@ export async function pairFlow(
     saved,
     claudeArgs,
     file.sharerAccount ?? null,
+    launchOpts,
   );
 }

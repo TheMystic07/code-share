@@ -8,6 +8,7 @@ import type { SavedConnection } from "../types";
 export async function reconnectFlow(
   uuid?: string,
   claudeArgs: string[] = [],
+  launchOpts: { noUpdate?: boolean } = {},
 ) {
   const connections = loadConnections();
 
@@ -57,5 +58,6 @@ export async function reconnectFlow(
     chosen,
     claudeArgs,
     chosen.sharerAccount ?? null,
+    launchOpts,
   );
 }

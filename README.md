@@ -73,6 +73,8 @@ code-connect
 
 The receiver configures Claude Code to route through the proxy and installs the session CA cert automatically. Everything is cleaned up on exit.
 
+Every launch first runs `claude update` (and installs Claude Code if it's missing) so the receiver always has the current client — new models/modes are advertised per client version. Skip with `--no-update` or `CODE_CONNECT_NO_UPDATE=1`.
+
 The receiver machine does **not** need a Claude subscription or login: placeholder credentials are created that mirror the sharer's plan, so Claude Code shows the same models and modes (Opus/Sonnet/Fable, ultra code, 1M context, …) as on the sharer's machine.
 
 ---

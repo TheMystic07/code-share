@@ -147,6 +147,77 @@ export async function checkClaudeInstalled(): Promise<boolean> {
   return (await findClaude()) !== null;
 }
 
+function run(cmd: string, args: string[], opts: { timeout: number; shell?: boolean }): Promise<number> {
+  return new Promise((resolve) => {
+    const child = spawn(cmd, args, { stdio: "inherit", shell: opts.shell ?? false, windowsHide: true });
+    const timer = setTimeout(() => child.kill(), opts.timeout);
+    child.on("exit", (code) => {
+      clearTimeout(timer);
+      resolve(code ?? 1);
+    });
+    child.on("error", () => {
+      clearTimeout(timer);
+      resolve(1);
+    });
+  });
+}
+
+async function claudeVersion(bin: string): Promise<string | null> {
+  try {
+    const { stdout } = await execFileAsync(bin, ["--version"], {
+      timeout: 15_000,
+      shell: IS_WIN && /\.(cmd|bat)$/i.test(bin),
+    });
+    return stdout.trim().split(/\s+/)[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Keeps the receiver's Claude Code current before every launch. New models
+ * and modes (Fable, ultra code, …) are advertised by Anthropic per client
+ * version, so an old `claude` silently hides them even though the proxy
+ * passes everything through. Installs Claude Code if it is missing.
+ * Skip with `--no-update` or CODE_CONNECT_NO_UPDATE=1.
+ */
+export async function ensureClaudeUpToDate(skip: boolean): Promise<void> {
+  if (skip || process.env.CODE_CONNECT_NO_UPDATE === "1") return;
+
+  let bin = await findClaude();
+  if (!bin) {
+    p.log.warn("Claude Code is not installed — installing it now.");
+    const code = IS_WIN
+      ? await run("powershell", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", "irm https://claude.ai/install.ps1 | iex"], { timeout: 600_000 })
+      : await run("bash", ["-c", "curl -fsSL https://claude.ai/install.sh | bash"], { timeout: 600_000 });
+    bin = await findClaude();
+    if (code !== 0 || !bin) {
+      p.log.error("Automatic install failed. Install Claude Code manually and re-run code-connect.");
+      return;
+    }
+    p.log.success(`Claude Code installed (${(await claudeVersion(bin)) ?? "unknown version"}).`);
+    return;
+  }
+
+  const before = await claudeVersion(bin);
+  p.log.step(`Checking for Claude Code updates (current: ${before ?? "unknown"})…`);
+  // `claude update` handles native and npm installs itself; give it a generous
+  // but bounded time so a stuck updater never blocks the session.
+  const code = await run(bin, ["update"], {
+    timeout: 240_000,
+    shell: IS_WIN && /\.(cmd|bat)$/i.test(bin),
+  });
+  const after = await claudeVersion((await findClaude()) ?? bin);
+  if (code !== 0) {
+    p.log.warn(`Claude Code update did not complete (exit ${code}) — continuing with ${after ?? before ?? "current version"}.`);
+    logger.warn("claude update failed", { code, before, after });
+  } else if (after && before && after !== before) {
+    p.log.success(`Claude Code updated ${before} → ${after}.`);
+  } else {
+    p.log.info(`Claude Code is up to date (${after ?? before ?? "unknown"}).`);
+  }
+}
+
 export async function sessionPost(
   serverUrl: string,
   endpoint: string,
@@ -182,7 +253,9 @@ export async function launchClaude(
   },
   claudeArgs: string[] = [],
   sharerAccount: SharerAccount | null = null,
+  opts: { noUpdate?: boolean } = {},
 ) {
+  await ensureClaudeUpToDate(opts.noUpdate ?? false);
   const claudeBin = await findClaude();
   if (!claudeBin) {
     p.log.error("Claude Code is not installed or not in PATH.");

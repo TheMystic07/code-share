@@ -56,6 +56,7 @@ const ownIdxs = new Set<number>();
 args.forEach((a, i) => {
   if (a === "--list" || a === "-l") ownIdxs.add(i);
   if (a === "--cleanup") ownIdxs.add(i);
+  if (a === "--no-update") ownIdxs.add(i);
   if (a === "--reconnect" || a === "-r") {
     ownIdxs.add(i);
     if (args[i + 1] && !args[i + 1].startsWith("-")) ownIdxs.add(i + 1);
@@ -68,6 +69,7 @@ args.forEach((a, i) => {
 });
 
 const claudeArgs = args.filter((_, i) => !ownIdxs.has(i));
+const launchOpts = { noUpdate: args.includes("--no-update") };
 const shareEqArg = args.find((a) => a.startsWith("--share="));
 const shareIdx = args.indexOf("--share");
 const shareArg =
@@ -101,7 +103,7 @@ if (!hasAgreedToTerms()) {
 if (args[0] === "--list" || args[0] === "-l") {
   await listFlow();
 } else if (args[0] === "--reconnect" || args[0] === "-r") {
-  await reconnectFlow(args[1], claudeArgs);
+  await reconnectFlow(args[1], claudeArgs, launchOpts);
 } else if (shareArg) {
   const connectUrl = shareArg.slice("--share=".length).trim();
   const parsed = parseConnectUrl(connectUrl);
@@ -126,16 +128,17 @@ if (args[0] === "--list" || args[0] === "-l") {
         existing,
         claudeArgs,
         existing.sharerAccount ?? null,
+        launchOpts,
       );
     } else {
       // Session changed, server restarted, or TLS cert rotated (sharer restart generates
       // a new CA, so the old caPem fails verification and health returns alive=false).
       // The user provided an explicit new URL, so always attempt fresh pairing — if the
       // sharer is truly offline, pairFlow will fail with a network error naturally.
-      await pairFlow(parsed, claudeArgs);
+      await pairFlow(parsed, claudeArgs, launchOpts);
     }
   } else {
-    await pairFlow(parsed, claudeArgs);
+    await pairFlow(parsed, claudeArgs, launchOpts);
   }
 } else {
   // No --share flag: check for active saved connections first
@@ -182,7 +185,7 @@ if (args[0] === "--list" || args[0] === "-l") {
         process.exit(0);
       }
       if (pick === "__new__") {
-        await pairFlow(undefined, claudeArgs);
+        await pairFlow(undefined, claudeArgs, launchOpts);
       } else {
         const chosen = active.find((r) => r.conn.id === pick)!;
         await launchClaude(
@@ -191,12 +194,13 @@ if (args[0] === "--list" || args[0] === "-l") {
           chosen.conn,
           claudeArgs,
           chosen.conn.sharerAccount ?? null,
+          launchOpts,
         );
       }
     } else {
-      await pairFlow(undefined, claudeArgs);
+      await pairFlow(undefined, claudeArgs, launchOpts);
     }
   } else {
-    await pairFlow(undefined, claudeArgs);
+    await pairFlow(undefined, claudeArgs, launchOpts);
   }
 }

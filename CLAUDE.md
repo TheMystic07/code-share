@@ -50,7 +50,8 @@ Build: `bun run build` (compiles both via bun build). Lint: `bun run lint`.
 
 ## Known quirks
 
-- `ensureBore()` must run **before** any `p.intro()`/`p.select()` calls. clack's `p.confirm()` tears down stdin in a way ink can't recover from if it runs after other prompts.
+- Any clack prompt/spinner leaves stdin with a stale readline `data` listener in paused mode, which makes ink's `useInput` deaf. `resetStdinForInk()` in `code-share/index.ts` must run right before `render()` — keep it there if you add prompts.
+- Fable/new models on the receiver come from `GET /api/claude_cli/bootstrap`, which the API answers based on the *receiver's* Claude Code version (User-Agent). An outdated `claude` on the receiver won't list them no matter what the proxy does.
 - `--share <url>` and `--share=<url>` are both supported in the receiver.
 - bore doesn't set `x-forwarded-for`, so all bore requests arrive as `ip = "unknown"`.
 - On Windows the receiver resets `cachedGrowthBookFeatures.tengu_windows_credman` to `false` before launch so Claude Code reads the placeholder file instead of Windows Credential Manager.

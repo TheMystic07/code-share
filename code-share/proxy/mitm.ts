@@ -216,6 +216,7 @@ export async function createMitmProxy(
 
     function deny(ctx: any, method: string, hostname: string, reqPath: string) {
       logRequest(method, hostname, reqPath, "blocked");
+      logger.info(`[req] ${method} ${hostname}${reqPath.split("?")[0].slice(0, 100)} → 403 blocked`);
       ctx.proxyToClientResponse.writeHead(403, { "Content-Type": "text/plain" });
       ctx.proxyToClientResponse.end("Not allowed by code-share policy");
     }
@@ -262,6 +263,12 @@ export async function createMitmProxy(
       }
 
       const host = (ctx.clientToProxyRequest?.headers?.host ?? "").split(":")[0];
+      {
+        const req = ctx.clientToProxyRequest;
+        const ua = String(req?.headers?.["user-agent"] ?? "").slice(0, 60);
+        const pathOnly = String(req?.url ?? "/").split("?")[0].slice(0, 100);
+        logger.info(`[req] ${req?.method ?? "?"} ${host}${pathOnly} → ${status} (${ua})`);
+      }
 
       // Anthropic rejected the injected token. Start a refresh immediately and,
       // if a refresh is possible, tell the receiver to retry (503 + Retry-After)

@@ -206,6 +206,15 @@ async function killPortOwner(port: number): Promise<boolean> {
 
 type ShareMode = "internet" | "direct" | "lan";
 
+function resetStdinForInk(): void {
+  const stdin = process.stdin as NodeJS.ReadStream & { setRawMode?: (m: boolean) => void };
+  for (const ev of ["keypress", "data", "readable", "end"]) stdin.removeAllListeners(ev);
+  try {
+    if (stdin.isTTY) stdin.setRawMode?.(false);
+  } catch {}
+  stdin.pause();
+}
+
 async function main() {
   const argv = process.argv.slice(2);
 
@@ -550,6 +559,10 @@ async function main() {
     });
   }
 
+  // clack prompts leave stdin with a stale readline `data` listener and in
+  // paused (non-flowing) mode; ink's useInput then never sees a keypress.
+  // Detach everything clack left behind before ink takes over stdin.
+  resetStdinForInk();
   const { unmount, rerender } = render(makeAppElement());
   rerenderApp = rerender;
 

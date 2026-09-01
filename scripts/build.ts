@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
-// Build script. If BORE_SERVER / BORE_PASSWORD are set in the environment they
-// are baked into the code-share bundle at compile time; otherwise the bundle
-// resolves them at runtime (env → ~/.code-share/config.json → bore.pub).
+// Build script. BORE_SERVER / BORE_PASSWORD from the environment are baked into
+// the code-share bundle as *defaults*; at runtime a BORE_SERVER/BORE_PASSWORD
+// env var or ~/.code-share/config.json (boreServer/boreSecret) still overrides.
 //   BORE_SERVER=my.server BORE_PASSWORD=secret bun run build
 
 function build(entry: string, outfile: string, extraArgs: string[] = []) {
@@ -12,13 +12,13 @@ function build(entry: string, outfile: string, extraArgs: string[] = []) {
   if (result.exitCode !== 0) process.exit(result.exitCode ?? 1);
 }
 
-const shareDefines: string[] = ["--define", `process.env.NODE_ENV="production"`];
-if (process.env.BORE_SERVER) {
-  shareDefines.push("--define", `process.env.BORE_SERVER=${JSON.stringify(process.env.BORE_SERVER)}`);
-}
-if (process.env.BORE_PASSWORD) {
-  shareDefines.push("--define", `process.env.BORE_PASSWORD=${JSON.stringify(process.env.BORE_PASSWORD)}`);
-}
+const bakedServer = process.env.BORE_SERVER || "tunnel.mystic.cat";
+const bakedPassword = process.env.BORE_PASSWORD || "";
+const shareDefines: string[] = [
+  "--define", `process.env.NODE_ENV="production"`,
+  "--define", `process.env.CODE_SHARE_BAKED_BORE_SERVER=${JSON.stringify(bakedServer)}`,
+  "--define", `process.env.CODE_SHARE_BAKED_BORE_PASSWORD=${JSON.stringify(bakedPassword)}`,
+];
 
 build("code-share/index.ts", "dist/code-share/index.js", shareDefines);
 build("code-connect/index.ts", "dist/code-connect/index.js", [

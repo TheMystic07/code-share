@@ -13,10 +13,11 @@ const execFileAsync = promisify(execFile);
 
 const IS_WIN = process.platform === "win32";
 
-// Bore server + secret: baked in at build time via --define when BORE_SERVER /
-// BORE_PASSWORD are set during `bun run build`; otherwise resolved at runtime
-// from the environment, then ~/.code-share/config.json (`boreServer`,
-// `boreSecret`), then bore.pub.
+// Bore server + secret, in priority order:
+//   1. BORE_SERVER / BORE_PASSWORD in the environment at runtime
+//   2. `boreServer` / `boreSecret` in ~/.code-share/config.json
+//   3. defaults baked in at build time (scripts/build.ts, --define)
+//   4. bore.pub with no secret
 function readShareConfig(): Record<string, unknown> {
   try {
     return JSON.parse(
@@ -28,9 +29,15 @@ function readShareConfig(): Record<string, unknown> {
 }
 const _cfg = readShareConfig();
 const BORE_SERVER: string =
-  process.env.BORE_SERVER || (typeof _cfg["boreServer"] === "string" && _cfg["boreServer"]) || "bore.pub";
+  process.env.BORE_SERVER ||
+  (typeof _cfg["boreServer"] === "string" && _cfg["boreServer"]) ||
+  process.env.CODE_SHARE_BAKED_BORE_SERVER ||
+  "bore.pub";
 const BORE_PASSWORD: string =
-  process.env.BORE_PASSWORD || (typeof _cfg["boreSecret"] === "string" && _cfg["boreSecret"]) || "";
+  process.env.BORE_PASSWORD ||
+  (typeof _cfg["boreSecret"] === "string" && _cfg["boreSecret"]) ||
+  process.env.CODE_SHARE_BAKED_BORE_PASSWORD ||
+  "";
 
 // Where we install bore when it isn't already in PATH
 const BORE_LOCAL_PATH = IS_WIN

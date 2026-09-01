@@ -20,7 +20,7 @@ claude (CLI)                        code-share
                                       │
                                       ├─ Hono API (pairing, health, CA cert)
                                       │
-                                      └─ bore tunnel (public URL via bore.pub)
+                                      └─ bore tunnel (public URL via tunnel.mystic.cat)
 ```
 
 - The sharer's OAuth token is read from Claude Code's credential store (macOS Keychain, or `~/.claude/.credentials.json` on Linux/Windows) and injected per-request inside the MITM proxy — it is never sent to the receiver.
@@ -52,11 +52,10 @@ You'll be asked how to share:
 
 | Mode | When to use |
 |---|---|
-| **Internet via tunnel** | Sharer is behind NAT. Uses [bore](https://github.com/ekzhang/bore) (auto-installed on macOS/Linux/Windows). The tunnel auto-reconnects on the same port if it drops. |
-| **Internet direct** | Sharer has a public IP or a port-forward (e.g. a VPS / home server). No tunnel — most reliable and fastest. Your public IP is detected; confirm the `host:port` receivers should use. |
+| **Internet** | Tunnel via [bore](https://github.com/ekzhang/bore) through `tunnel.mystic.cat` (auto-installed on macOS/Linux/Windows). Auto-reconnects on the same port if it drops. Override the server/secret with `boreServer` / `boreSecret` in `~/.code-share/config.json` or `BORE_SERVER` / `BORE_PASSWORD` env vars. |
 | **LAN only** | Both machines on the same network. |
 
-Flags: `--mode internet|direct|lan`, `--public-host host[:port]` (implies direct), `--port <n>`, `TUNNEL=0` (LAN only).
+Flags: `--mode internet|lan`, `--port <n>` (default 2569), `TUNNEL=0` (LAN only). A hidden `--mode direct` / `--public-host host[:port]` exists for machines with a public IP (no tunnel).
 
 The TUI shows connection URLs plus live token and tunnel status. Share the **Public** URL with receivers over the internet, or the **LAN** URL for local network.
 
@@ -112,7 +111,7 @@ npx -p @gurshabad90/code-share code-connect --share <connect-url>
 
 ## Troubleshooting
 
-- **Requests hang / "stuck" mid-turn** — every hop now uses TCP keepalive and short request timeouts, so a dropped tunnel fails fast and Claude Code retries by itself. If it keeps happening in tunnel mode, switch the sharer to **Internet direct** (needs a reachable port) — bore.pub is a shared best-effort service.
+- **Requests hang / "stuck" mid-turn** — every hop now uses TCP keepalive and short request timeouts, so a dropped tunnel fails fast and Claude Code retries by itself. If it keeps happening, check the tunnel server (`~/.code-share/logs/share.log` shows bore reconnects).
 - **"The sharer's token expired — refreshing it now"** — transient; the sharer refreshes and Claude Code retries. If the TUI shows `token dead`, run `claude login` on the sharer machine.
 - **Models missing on the receiver** — make sure both sides run ≥ 1.4.0 and re-pair (`code-connect --share <url>`); the receiver's placeholder credentials are updated to match the sharer's plan.
 - Logs: `~/.code-share/logs/share.log` (sharer) and `connect.log` (receiver).

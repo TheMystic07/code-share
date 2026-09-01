@@ -258,16 +258,13 @@ async function main() {
     shareMode = "direct";
   } else {
     const lastMode = readShareConfig()["lastShareMode"] as ShareMode | undefined;
+    // "direct" mode is still available via --mode direct / --public-host but is
+    // intentionally not offered in the menu.
     const options = [
       {
         value: "internet" as const,
-        label: "Internet via tunnel",
-        hint: `bore tunnel through ${boreServer()} — works behind NAT, can be flaky`,
-      },
-      {
-        value: "direct" as const,
-        label: "Internet direct",
-        hint: "this machine has a public IP / port-forward — most reliable",
+        label: "Internet",
+        hint: `tunnel via ${boreServer()}`,
       },
       {
         value: "lan" as const,
@@ -278,13 +275,13 @@ async function main() {
     const choice = await p.select({
       message: "How do you want to share?",
       options,
-      initialValue: lastMode ?? "internet",
+      initialValue: lastMode === "lan" ? "lan" : "internet",
     });
     if (p.isCancel(choice)) {
       p.cancel("Cancelled.");
       process.exit(0);
     }
-    shareMode = choice;
+    shareMode = choice as ShareMode;
     patchShareConfig({ lastShareMode: shareMode });
   }
 

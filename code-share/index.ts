@@ -307,7 +307,7 @@ async function main() {
   const duration = await promptDuration();
   const session = createSession(duration);
 
-  const DEFAULT_PORT = 2586;
+  const DEFAULT_PORT = 2569;
   const portFlag = flagValue(argv, "--port", "-p");
   let PORT =
     portFlag != null && !isNaN(parseInt(portFlag, 10))
@@ -328,7 +328,7 @@ async function main() {
       spin.stop(publicIp ? `Public IP: ${publicIp}` : "Could not detect public IP.");
       const entered = await p.text({
         message: "Public host (and port if different) receivers should connect to:",
-        placeholder: publicIp ? `${publicIp}:${PORT}` : "my.server.example.com:2586",
+        placeholder: publicIp ? `${publicIp}:${PORT}` : "my.server.example.com:2569",
         initialValue: publicIp ? `${publicIp}:${PORT}` : "",
         validate: (v) => (v?.trim() ? undefined : "Required"),
       });

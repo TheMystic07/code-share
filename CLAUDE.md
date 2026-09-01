@@ -16,7 +16,7 @@ Build: `bun run build` (compiles both via bun build). Lint: `bun run lint`.
 
 ## Architecture
 
-**Single public port** (default 2586): `port/detector.ts` sniffs first bytes — `CONNECT` goes to MITM proxy, TLS ClientHello (`0x16`) is terminated and piped to the Hono API on `PORT+1`, plain HTTP is piped to the Hono API on `PORT+1` (localhost-only). Bore tunnels PORT.
+**Single public port** (default 2569): `port/detector.ts` sniffs first bytes — `CONNECT` goes to MITM proxy, TLS ClientHello (`0x16`) is terminated and piped to the Hono API on `PORT+1`, plain HTTP is piped to the Hono API on `PORT+1` (localhost-only). Bore tunnels PORT.
 
 **MITM proxy** (`proxy/mitm.ts`): intercepts TLS only for `INTERCEPT_DOMAINS` (`api.anthropic.com`, `platform.anthropic.com`, `platform.claude.com`, `mcp-proxy.anthropic.com`). All other CONNECT requests are transparent TCP-piped — never touch the cert or plaintext.
 

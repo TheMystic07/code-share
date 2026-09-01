@@ -29,7 +29,7 @@ export async function pairFlow(
   } else {
     const input = await p.text({
       message: "Connect link or sharer URL:",
-      placeholder: "codeshare://192.168.x.x:2586/connect/CODE",
+      placeholder: "codeshare://192.168.x.x:2569/connect/CODE",
       validate: (v) =>
         v?.startsWith("codeshare://") ||
         v?.startsWith("claudeshare://") ||

@@ -1,6 +1,4 @@
-import { execFile } from "node:child_process";
 import os from "node:os";
-import { promisify } from "node:util";
 
 import {
   credentialsFileExists,
@@ -10,9 +8,9 @@ import {
 } from "./fileStore";
 import type { PlatformOps } from "./types";
 
-const execFileAsync = promisify(execFile);
-
-const linux: PlatformOps = {
+// Claude Code on Windows stores credentials in %USERPROFILE%\.claude\.credentials.json
+// (or $CLAUDE_CONFIG_DIR\.credentials.json) — same layout as Linux.
+const win32: PlatformOps = {
   readOAuthCredentials: readOAuthFromFile,
   readCredentialPayload: readPayloadFromFile,
   async credentialsExist(): Promise<boolean> {
@@ -21,13 +19,8 @@ const linux: PlatformOps = {
   writeOAuthCredentials: writePayloadToFile,
 
   async getSystemName(): Promise<string> {
-    try {
-      const { stdout } = await execFileAsync("hostname");
-      return stdout.trim() || os.hostname();
-    } catch {
-      return os.hostname();
-    }
+    return process.env.COMPUTERNAME?.trim() || os.hostname();
   },
 };
 
-export default linux;
+export default win32;

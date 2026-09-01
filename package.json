@@ -1,6 +1,6 @@
 {
   "name": "@0xpv/claude-share",
-  "version": "1.3.2",
+  "version": "1.4.0",
   "description": "Share or connect to a friend's Claude Code subscription",
   "type": "module",
   "license": "MIT",
@@ -34,8 +34,8 @@
     "dev:connect": "bun claude-connect/index.ts",
     "start:share": "node dist/claude-share/index.js",
     "start:connect": "node dist/claude-connect/index.js",
-    "lint": "oxlint claude-share/src claude-connect/src shared",
-    "fmt": "oxfmt --config .oxfmtrc.json claude-share/src claude-connect/src shared",
+    "lint": "oxlint claude-share claude-connect shared",
+    "fmt": "oxfmt --config .oxfmtrc.json claude-share claude-connect shared",
     "prepublishOnly": "npm run lint && npm run build"
   },
   "dependencies": {

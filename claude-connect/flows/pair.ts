@@ -126,6 +126,7 @@ export async function pairFlow(
     caPem: file.caPem,
     savedAt: new Date().toISOString(),
     sharerAccount: file.sharerAccount ?? null,
+    sharerSubscription: file.sharerSubscription ?? null,
     proxyUser: file.proxyUser,
     proxyPass: file.proxyPass,
   };

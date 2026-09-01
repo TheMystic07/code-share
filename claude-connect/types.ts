@@ -1,6 +1,6 @@
-import type { SharerAccount } from "@shared/types";
+import type { SharerAccount, SharerSubscription } from "@shared/types";
 
-export type { ConnectionFile, SharerAccount } from "@shared/types";
+export type { ConnectionFile, SharerAccount, SharerSubscription } from "@shared/types";
 
 export interface SavedConnection {
   id: string;
@@ -12,6 +12,7 @@ export interface SavedConnection {
   caPem: string;
   savedAt: string;
   sharerAccount: SharerAccount | null;
+  sharerSubscription?: SharerSubscription | null;
   proxyUser: string;
   proxyPass: string;
 }

@@ -2,6 +2,10 @@ import { execFile } from "node:child_process";
 import os from "node:os";
 import { promisify } from "node:util";
 
+import {
+  credentialsFileExists,
+  readPayloadFromFile,
+} from "./fileStore";
 import type { CredentialPayload, OAuthCredentials, PlatformOps } from "./types";
 
 const execFileAsync = promisify(execFile);
@@ -11,26 +15,42 @@ function username() {
   return os.userInfo().username;
 }
 
+async function readKeychainPayload(): Promise<CredentialPayload> {
+  const { stdout } = await execFileAsync("security", [
+    "find-generic-password",
+    "-s", SERVICE,
+    "-a", username(),
+    "-w",
+  ]);
+  const payload = JSON.parse(stdout.trim()) as CredentialPayload;
+  if (!payload?.claudeAiOauth) throw new Error("Keychain item has no claudeAiOauth entry");
+  return payload;
+}
+
 const darwin: PlatformOps = {
   async readOAuthCredentials(): Promise<OAuthCredentials> {
-    const { stdout } = await execFileAsync("security", [
-      "find-generic-password",
-      "-s", SERVICE,
-      "-a", username(),
-      "-w",
-    ]);
-    const payload: CredentialPayload = JSON.parse(stdout.trim());
-    return payload.claudeAiOauth;
+    return (await darwin.readCredentialPayload()).claudeAiOauth;
+  },
+
+  async readCredentialPayload(): Promise<CredentialPayload> {
+    try {
+      return await readKeychainPayload();
+    } catch (err) {
+      // Some installs (CLAUDE_CONFIG_DIR, older builds) use the plaintext file.
+      if (credentialsFileExists()) return readPayloadFromFile();
+      throw err;
+    }
   },
 
   async credentialsExist(): Promise<boolean> {
-    return execFileAsync("security", [
+    const inKeychain = await execFileAsync("security", [
       "find-generic-password",
       "-s", SERVICE,
       "-a", username(),
     ])
       .then(() => true)
       .catch(() => false);
+    return inKeychain || credentialsFileExists();
   },
 
   async writeOAuthCredentials(payload: CredentialPayload): Promise<void> {
@@ -46,7 +66,7 @@ const darwin: PlatformOps = {
   async getSystemName(): Promise<string> {
     try {
       const { stdout } = await execFileAsync("scutil", ["--get", "ComputerName"]);
-      return stdout.trim();
+      return stdout.trim() || os.hostname();
     } catch {
       return os.hostname();
     }

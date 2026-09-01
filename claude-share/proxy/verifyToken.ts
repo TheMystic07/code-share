@@ -4,83 +4,81 @@ import * as p from "@clack/prompts";
 
 import { platform } from "@shared/platforms";
 import { logger } from "../logger";
-import { initToken } from "./token";
+import { getTokenStatus, initToken } from "./token";
 
+// Last-resort fallback: let Claude Code itself refresh (it may hold a newer
+// refresh token in some edge cases, e.g. a different credential backend).
 function spawnClaudeForRefresh(): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = execFile("claude", ["-p", "HI"], { timeout: 60_000 }, (err) => {
-      if (err?.killed) {
-        reject(new Error("Claude process timed out after 60s"));
-      } else {
-        // Non-zero exit is acceptable — the OAuth refresh can succeed even if the
-        // prompt itself fails (e.g. rate limit, no Pro plan, etc.).
-        resolve();
-      }
-    });
+    const bin = process.platform === "win32" ? "claude.cmd" : "claude";
+    const child = execFile(
+      bin,
+      ["-p", "hi"],
+      { timeout: 60_000, shell: process.platform === "win32" },
+      (err) => {
+        if (err?.killed) reject(new Error("Claude process timed out after 60s"));
+        else resolve();
+      },
+    );
     child.stdout?.resume();
     child.stderr?.resume();
   });
 }
 
 export async function verifyTokenOrExit(): Promise<void> {
-  const creds = await platform().readOAuthCredentials().catch(() => null);
-
-  if (!creds) {
+  const exists = await platform().credentialsExist();
+  if (!exists) {
     p.log.error(
-      "Could not read Anthropic credentials from keychain.\n" +
-        "Please run 'claude' to log in, then restart claude-share.",
-    );
-    process.exit(1);
-  }
-
-  if (creds.expiresAt > Date.now()) return; // token is still valid by clock
-
-  logger.warn("[token] access token is expired, attempting refresh via Claude");
-  p.log.warn("Your Anthropic access token is expired.");
-
-  if (!creds.refreshToken) {
-    p.log.error(
-      "No refresh token found — cannot refresh automatically.\n" +
-        "Run 'claude' to log in again, then restart claude-share.",
+      "Could not find Claude Code credentials on this machine.\n" +
+        "Run 'claude' and log in, then restart claude-share.",
     );
     process.exit(1);
   }
 
   const spin = p.spinner();
-  spin.start("Launching Claude to refresh the token...");
+  spin.start("Checking Anthropic credentials…");
 
-  let spawnOk = false;
+  try {
+    await initToken();
+  } catch (err) {
+    logger.warn("[token] initial refresh failed", err);
+  }
+
+  let st = getTokenStatus();
+  if (st.state === "ok" && st.expiresAt && st.expiresAt > Date.now()) {
+    const mins = Math.round((st.expiresAt - Date.now()) / 60000);
+    spin.stop(`Credentials OK — auto-refresh enabled (token valid for ${mins} min).`);
+    return;
+  }
+
+  // Refresh failed. Try the Claude Code fallback once, then re-check.
+  spin.message("Token refresh failed — trying via Claude Code…");
   try {
     await spawnClaudeForRefresh();
-    spawnOk = true;
   } catch (err) {
     logger.warn("[token] claude spawn error", err);
   }
-
-  spin.stop(spawnOk ? "Claude process exited." : "Claude process failed — checking credentials anyway.");
-
-  // Re-read and re-cache the (hopefully refreshed) credentials.
   try {
     await initToken();
-  } catch {
-    p.log.error(
-      "Could not read credentials after refresh attempt.\n" +
-        "Check that 'claude' is working: claude -p \"hello\"\n" +
-        "If it fails, re-login: claude logout && claude login",
-    );
-    process.exit(1);
+  } catch {}
+
+  st = getTokenStatus();
+  if (st.state === "ok" && st.expiresAt && st.expiresAt > Date.now()) {
+    spin.stop("Credentials refreshed.");
+    return;
+  }
+  // The access token may still be valid even if refresh failed; allow sharing but warn.
+  if (st.expiresAt && st.expiresAt > Date.now()) {
+    spin.stop(`Sharing with current token; automatic refresh is failing: ${st.lastError ?? "unknown"}`);
+    p.log.warn("If the token expires and cannot be refreshed, run 'claude login' on this machine.");
+    return;
   }
 
-  const fresh = await platform().readOAuthCredentials().catch(() => null);
-  if (!fresh || fresh.expiresAt <= Date.now()) {
-    p.log.error(
-      "Token is still expired after the refresh attempt.\n" +
-        "Your Claude may not be working correctly.\n" +
-        "Try: claude -p \"hello\"\n" +
-        "If it fails, re-login: claude logout && claude login",
-    );
-    process.exit(1);
-  }
-
-  p.log.success("Token refreshed successfully.");
+  spin.stop("Token is expired and could not be refreshed.");
+  p.log.error(
+    (st.lastError ? `${st.lastError}\n` : "") +
+      "Re-login on this machine: claude logout && claude login\n" +
+      "Then restart claude-share.",
+  );
+  process.exit(1);
 }

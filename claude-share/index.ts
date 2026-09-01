@@ -39,8 +39,15 @@ process.on("unhandledRejection", (reason) => {
 platform();
 
 import { createPortDetector } from "./port/detector";
-import { createMitmProxy } from "./proxy/mitm";
-import { initToken, stopTokenRefresh } from "./proxy/token";
+import { createMitmProxy, tuneSocket } from "./proxy/mitm";
+import {
+  getRateLimitTier,
+  getSubscriptionType,
+  getTokenStatus,
+  stopTokenRefresh,
+  subscribeTokenStatus,
+  type TokenStatus,
+} from "./proxy/token";
 import { createApiApp } from "./server/index";
 import {
   createSession,
@@ -51,48 +58,44 @@ import {
   type SharerAccount,
 } from "./session/manager";
 import { App } from "./tui/App";
-import { isBoreInstalled, installBore, startTunnel } from "./tunnel/index";
+import {
+  boreServer,
+  isBoreInstalled,
+  installBore,
+  startTunnel,
+  type Tunnel,
+  type TunnelState,
+} from "./tunnel/index";
 import { verifyTokenOrExit } from "./proxy/verifyToken";
 
-const CLAUDE_SHARE_CONFIG = path.join(
-  os.homedir(),
-  ".claude-share",
-  "config.json",
-);
+const IS_WIN = process.platform === "win32";
 
-function hasAgreedToTerms(): boolean {
+const CLAUDE_SHARE_CONFIG = path.join(os.homedir(), ".claude-share", "config.json");
+
+function readShareConfig(): Record<string, unknown> {
   try {
-    const cfg = JSON.parse(
-      fs.readFileSync(CLAUDE_SHARE_CONFIG, "utf8"),
-    ) as Record<string, unknown>;
-    return cfg["hasShareTermsAgreed"] === true;
+    return JSON.parse(fs.readFileSync(CLAUDE_SHARE_CONFIG, "utf8")) as Record<string, unknown>;
   } catch {
-    return false;
+    return {};
   }
 }
 
-function saveTermsAgreed(): void {
-  const dir = path.dirname(CLAUDE_SHARE_CONFIG);
-  fs.mkdirSync(dir, { recursive: true });
-  let cfg: Record<string, unknown> = {};
-  try {
-    cfg = JSON.parse(fs.readFileSync(CLAUDE_SHARE_CONFIG, "utf8")) as Record<
-      string,
-      unknown
-    >;
-  } catch {}
-  cfg["hasShareTermsAgreed"] = true;
-  fs.writeFileSync(CLAUDE_SHARE_CONFIG, JSON.stringify(cfg, null, 2), {
-    mode: 0o600,
-  });
+function patchShareConfig(patch: Record<string, unknown>): void {
+  fs.mkdirSync(path.dirname(CLAUDE_SHARE_CONFIG), { recursive: true });
+  fs.writeFileSync(
+    CLAUDE_SHARE_CONFIG,
+    JSON.stringify({ ...readShareConfig(), ...patch }, null, 2),
+    { mode: 0o600 },
+  );
+}
+
+function hasAgreedToTerms(): boolean {
+  return readShareConfig()["hasShareTermsAgreed"] === true;
 }
 
 function readSharerAccount(): SharerAccount | null {
   try {
-    const raw = fs.readFileSync(
-      path.join(os.homedir(), ".claude.json"),
-      "utf8",
-    );
+    const raw = fs.readFileSync(path.join(os.homedir(), ".claude.json"), "utf8");
     const config = JSON.parse(raw) as Record<string, unknown>;
     const acct = config["oauthAccount"] as Record<string, string> | undefined;
     if (!acct) return null;
@@ -106,16 +109,37 @@ function readSharerAccount(): SharerAccount | null {
   }
 }
 
-async function getSystemName(): Promise<string> {
-  return platform().getSystemName();
-}
-
 function getLanIp(): string | null {
   for (const ifaces of Object.values(os.networkInterfaces())) {
     for (const iface of ifaces ?? []) {
       if (iface.family === "IPv4" && !iface.internal) {
         return iface.address;
       }
+    }
+  }
+  return null;
+}
+
+async function detectPublicIp(): Promise<string | null> {
+  const sources = ["https://api.ipify.org", "https://checkip.amazonaws.com", "https://icanhazip.com"];
+  for (const url of sources) {
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(4_000) });
+      const ip = (await res.text()).trim();
+      if (net.isIP(ip)) return ip;
+    } catch {}
+  }
+  return null;
+}
+
+// ── CLI flags ─────────────────────────────────────────────────────────────────
+
+function flagValue(argv: string[], ...names: string[]): string | null {
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i]!;
+    for (const n of names) {
+      if (a === n && argv[i + 1] && !argv[i + 1]!.startsWith("-")) return argv[i + 1]!;
+      if (a.startsWith(`${n}=`)) return a.slice(n.length + 1);
     }
   }
   return null;
@@ -128,6 +152,7 @@ async function promptDuration(): Promise<number> {
       { value: 6 * 60 * 60 * 1000, label: "6 hours" },
       { value: 24 * 60 * 60 * 1000, label: "24 hours" },
       { value: 7 * 24 * 60 * 60 * 1000, label: "1 week" },
+      { value: 30 * 24 * 60 * 60 * 1000, label: "30 days" },
     ],
   });
 
@@ -139,15 +164,58 @@ async function promptDuration(): Promise<number> {
   return choice as number;
 }
 
+async function freePort(): Promise<number> {
+  return new Promise<number>((resolve, reject) => {
+    const srv = net.createServer();
+    srv.once("error", reject);
+    srv.listen(0, "127.0.0.1", () => {
+      const port = (srv.address() as net.AddressInfo).port;
+      srv.close(() => resolve(port));
+    });
+  });
+}
+
+async function killPortOwner(port: number): Promise<boolean> {
+  try {
+    if (IS_WIN) {
+      const { stdout } = await execFileAsync("netstat", ["-ano", "-p", "tcp"]);
+      const pids = new Set<string>();
+      for (const line of stdout.split(/\r?\n/)) {
+        const cols = line.trim().split(/\s+/);
+        if (cols[0] === "TCP" && cols[1]?.endsWith(`:${port}`) && cols[3] === "LISTENING" && cols[4]) {
+          pids.add(cols[4]);
+        }
+      }
+      if (pids.size === 0) return false;
+      for (const pid of pids) await execFileAsync("taskkill", ["/PID", pid, "/F"]);
+      return true;
+    }
+    const { stdout } = await execFileAsync("lsof", ["-ti", `tcp:${port}`, "-sTCP:LISTEN"]).catch(
+      () => ({ stdout: "" }),
+    );
+    const pids = stdout.trim().split("\n").filter(Boolean);
+    if (pids.length === 0) return false;
+    await execFileAsync("kill", ["-9", ...pids]);
+    return true;
+  } catch (err) {
+    logger.warn("killPortOwner failed", err);
+    return false;
+  }
+}
+
+type ShareMode = "internet" | "direct" | "lan";
+
 async function main() {
-  if (process.argv.includes("--upgrade")) {
+  const argv = process.argv.slice(2);
+
+  if (argv.includes("--upgrade")) {
     await forceUpgrade();
     return;
   }
 
   await checkForUpdate();
 
-  p.intro("claude-share");
+  p.intro(`claude-share v${pkg.version}`);
 
   if (!hasAgreedToTerms()) {
     p.log.warn(
@@ -168,109 +236,138 @@ async function main() {
       p.cancel("Cancelled.");
       process.exit(0);
     }
-    saveTermsAgreed();
+    patchShareConfig({ hasShareTermsAgreed: true });
   }
 
-  const envTunnel =
-    process.env.TUNNEL !== "0" && process.env.TUNNEL !== "false";
+  // ── Share mode ───────────────────────────────────────────────────────────────
+  const envTunnel = process.env.TUNNEL !== "0" && process.env.TUNNEL !== "false";
+  const publicHostFlag = flagValue(argv, "--public-host") ?? process.env.PUBLIC_HOST ?? null;
+  const modeFlag = (flagValue(argv, "--mode") ??
+    (argv.includes("--direct") ? "direct" : argv.includes("--lan") ? "lan" : null)) as
+    | ShareMode
+    | null;
 
-  let boreReady = false;
+  let shareMode: ShareMode;
   if (!envTunnel) {
+    shareMode = "lan";
     p.log.info("TUNNEL=0 — sharing on LAN only.");
+  } else if (modeFlag) {
+    shareMode = modeFlag;
+  } else if (publicHostFlag) {
+    shareMode = "direct";
   } else {
-    const shareMode = await p.select({
+    const lastMode = readShareConfig()["lastShareMode"] as ShareMode | undefined;
+    const options = [
+      {
+        value: "internet" as const,
+        label: "Internet via tunnel",
+        hint: `bore tunnel through ${boreServer()} — works behind NAT, can be flaky`,
+      },
+      {
+        value: "direct" as const,
+        label: "Internet direct",
+        hint: "this machine has a public IP / port-forward — most reliable",
+      },
+      {
+        value: "lan" as const,
+        label: "LAN only",
+        hint: "both machines on the same network",
+      },
+    ];
+    const choice = await p.select({
       message: "How do you want to share?",
-      options: [
-        {
-          value: "internet",
-          label: "Internet",
-          hint: "EXPERIMENTAL: TCP tunnels via bore",
-        },
-        {
-          value: "lan",
-          label: "LAN only",
-          hint: "Both machines require to be on the same network",
-        },
-      ],
+      options,
+      initialValue: lastMode ?? "internet",
     });
-    if (p.isCancel(shareMode)) {
+    if (p.isCancel(choice)) {
       p.cancel("Cancelled.");
       process.exit(0);
     }
+    shareMode = choice;
+    patchShareConfig({ lastShareMode: shareMode });
+  }
 
-    if (shareMode === "internet") {
-      if (await isBoreInstalled()) {
+  let boreReady = false;
+  if (shareMode === "internet") {
+    if (await isBoreInstalled()) {
+      boreReady = true;
+    } else {
+      try {
+        await installBore();
         boreReady = true;
-      } else {
-        try {
-          await installBore();
-          boreReady = true;
-        } catch {
-          p.log.warn("Could not install bore — sharing on LAN only.");
-        }
+      } catch (err) {
+        p.log.warn(`Could not install bore (${(err as Error).message}) — sharing on LAN only.`);
       }
     }
   }
 
-  await initToken();
   await verifyTokenOrExit();
 
   const duration = await promptDuration();
   const session = createSession(duration);
 
   const DEFAULT_PORT = 2586;
-  const argv = process.argv.slice(2);
-  const portIdx = argv.findIndex((a) => a === "--port" || a === "-p");
-  const portEq = argv.find(
-    (a) => a.startsWith("--port=") || a.startsWith("-p="),
-  );
-  const portFlag =
-    portEq != null
-      ? parseInt(portEq.split("=")[1], 10)
-      : portIdx !== -1
-        ? parseInt(argv[portIdx + 1], 10)
-        : null;
+  const portFlag = flagValue(argv, "--port", "-p");
   let PORT =
-    portFlag != null && !isNaN(portFlag)
-      ? portFlag
+    portFlag != null && !isNaN(parseInt(portFlag, 10))
+      ? parseInt(portFlag, 10)
       : parseInt(process.env.PORT ?? String(DEFAULT_PORT), 10);
   const lanIp = getLanIp();
-  let lanUrl = lanIp ? `https://${lanIp}:${PORT}` : null;
-  let loopbackUrl = `http://localhost:${PORT}`;
 
-  const boreServer = process.env.BORE_SERVER ?? "bore.pub";
+  // ── Direct mode: figure out how the outside world reaches us ────────────────
+  let directHost: string | null = null; // host[:port] receivers should use
+  let publicIp: string | null = null;
+  if (shareMode === "direct") {
+    if (publicHostFlag) {
+      directHost = publicHostFlag;
+    } else {
+      const spin = p.spinner();
+      spin.start("Detecting public IP…");
+      publicIp = await detectPublicIp();
+      spin.stop(publicIp ? `Public IP: ${publicIp}` : "Could not detect public IP.");
+      const entered = await p.text({
+        message: "Public host (and port if different) receivers should connect to:",
+        placeholder: publicIp ? `${publicIp}:${PORT}` : "my.server.example.com:2586",
+        initialValue: publicIp ? `${publicIp}:${PORT}` : "",
+        validate: (v) => (v?.trim() ? undefined : "Required"),
+      });
+      if (p.isCancel(entered)) {
+        p.cancel("Cancelled.");
+        process.exit(0);
+      }
+      directHost = (entered as string).trim().replace(/^https?:\/\//, "").replace(/\/+$/, "");
+    }
+    p.log.info(
+      `Make sure TCP port ${PORT} on this machine is reachable from the internet\n` +
+        `(firewall / router port-forward → ${directHost}).`,
+    );
+  }
+
+  const directHostname = directHost ? directHost.split(":")[0]! : null;
+  const certHosts = {
+    hostnames: [boreServer(), directHostname].filter((h): h is string => !!h),
+    ips: [lanIp, publicIp].filter((h): h is string => !!h),
+  };
 
   // MITM proxy resolves only after its RSA CA is ready (no race on CONNECT)
-  const mitmProxy = await createMitmProxy(
-    lanIp,
-    (auth) => {
-      const session = getSession();
-      return session ? checkMachineAuth(session, auth) : false;
-    },
-    boreServer,
-  );
+  const mitmProxy = await createMitmProxy(certHosts, (auth) => {
+    const session = getSession();
+    return session ? checkMachineAuth(session, auth) : false;
+  });
   logger.info("MITM proxy ready");
 
-  // Mutable — publicUrl is filled in after the tunnel starts
-  const urls = { public: null as string | null, lan: lanUrl };
+  // Mutable — publicUrl is filled in after the tunnel starts / from direct host
+  const urls = { public: null as string | null, lan: lanIp ? `https://${lanIp}:${PORT}` : null };
+  let loopbackUrl = `http://localhost:${PORT}`;
   const sharerAccount = readSharerAccount();
-  const systemName = await getSystemName();
+  const systemName = await platform().getSystemName();
 
   // Hono API on a random localhost-only port — not exposed externally
-  const apiApp = createApiApp(
-    urls,
-    mitmProxy.caCertPem,
-    sharerAccount,
-    systemName,
-  );
-  const API_PORT = await new Promise<number>((resolve, reject) => {
-    const srv = net.createServer();
-    srv.once("error", reject);
-    srv.listen(0, "127.0.0.1", () => {
-      const port = (srv.address() as net.AddressInfo).port;
-      srv.close(() => resolve(port));
-    });
-  });
+  const apiApp = createApiApp(urls, mitmProxy.caCertPem, sharerAccount, systemName, () => ({
+    subscriptionType: getSubscriptionType(),
+    rateLimitTier: getRateLimitTier(),
+  }));
+  const API_PORT = await freePort();
   const honoServer = serve({
     fetch: apiApp.fetch,
     port: API_PORT,
@@ -282,8 +379,13 @@ async function main() {
   //   CONNECT → MITM proxy (HTTPS proxy tunnel)
   //   anything else → Hono API port (regular HTTPS API call)
   const tlsTermServer = tls.createServer(
-    { cert: mitmProxy.serverCert.certPem, key: mitmProxy.serverCert.keyPem },
+    {
+      cert: mitmProxy.serverCert.certPem,
+      key: mitmProxy.serverCert.keyPem,
+      handshakeTimeout: 20_000,
+    },
     (tlsSocket) => {
+      tuneSocket(tlsSocket);
       tlsSocket.on("error", (err) => {
         if ((err as NodeJS.ErrnoException).code !== "ECONNRESET") {
           logger.error("[tls] socket error", err);
@@ -291,11 +393,7 @@ async function main() {
       });
 
       tlsSocket.once("data", (chunk) => {
-        const isConnect = chunk
-          .slice(0, 8)
-          .toString("ascii")
-          .toUpperCase()
-          .startsWith("CONNECT");
+        const isConnect = chunk.slice(0, 8).toString("ascii").toUpperCase().startsWith("CONNECT");
         tlsSocket.unshift(chunk);
         if (isConnect) {
           mitmProxy.handleSocket(tlsSocket);
@@ -304,10 +402,17 @@ async function main() {
           tlsSocket.pipe(upstream);
           upstream.pipe(tlsSocket);
           upstream.on("error", () => tlsSocket.destroy());
+          tlsSocket.on("close", () => upstream.destroy());
         }
       });
     },
   );
+  tlsTermServer.on("tlsClientError", (err) => {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code !== "ECONNRESET" && code !== "ERR_TLS_HANDSHAKE_TIMEOUT") {
+      logger.warn("[tls] client error", err);
+    }
+  });
   const TLS_TERM_PORT = await new Promise<number>((resolve, reject) => {
     tlsTermServer.once("error", reject);
     tlsTermServer.listen(0, "127.0.0.1", () => {
@@ -318,26 +423,23 @@ async function main() {
   // Single public port: TLS ClientHello → TLS terminator (handles both HTTPS API
   // and HTTPS proxy CONNECT after decryption). Plain HTTP and bare CONNECT are
   // rejected — all traffic must be wrapped in TLS.
+  const reject426 = (socket: net.Socket) => {
+    socket.write("HTTP/1.1 426 Upgrade Required\r\nContent-Length: 0\r\n\r\n");
+    socket.destroy();
+  };
   const detector = createPortDetector({
-    onConnect: (socket) => {
-      socket.write(
-        "HTTP/1.1 426 Upgrade Required\r\nContent-Length: 0\r\n\r\n",
-      );
-      socket.destroy();
-    },
+    onConnect: reject426,
     onTls: (socket) => {
+      tuneSocket(socket);
       const upstream = net.connect(TLS_TERM_PORT, "127.0.0.1");
       socket.pipe(upstream);
       upstream.pipe(socket);
       socket.on("error", () => upstream.destroy());
       upstream.on("error", () => socket.destroy());
+      socket.on("close", () => upstream.destroy());
+      upstream.on("close", () => socket.destroy());
     },
-    onHttp: (socket) => {
-      socket.write(
-        "HTTP/1.1 426 Upgrade Required\r\nContent-Length: 0\r\n\r\n",
-      );
-      socket.destroy();
-    },
+    onHttp: reject426,
   });
 
   await new Promise<void>((resolve, reject) => {
@@ -355,30 +457,17 @@ async function main() {
     }
 
     if (!kill) {
-      PORT = await new Promise<number>((resolve, reject) => {
-        const srv = net.createServer();
-        srv.once("error", reject);
-        srv.listen(0, () => {
-          const port = (srv.address() as net.AddressInfo).port;
-          srv.close(() => resolve(port));
-        });
-      });
-      lanUrl = lanIp ? `https://${lanIp}:${PORT}` : null;
+      PORT = await freePort();
+      urls.lan = lanIp ? `https://${lanIp}:${PORT}` : null;
       loopbackUrl = `http://localhost:${PORT}`;
-      urls.lan = lanUrl;
       p.log.info(`Using port ${PORT} instead.`);
     } else {
-      const { stdout } = await execFileAsync("lsof", [
-        "-ti",
-        `tcp:${PORT}`,
-      ]).catch(() => ({ stdout: "" }));
-      const pids = stdout.trim().split("\n").filter(Boolean);
-      if (pids.length === 0) {
-        p.log.error(`Could not find process on port ${PORT}.`);
+      if (!(await killPortOwner(PORT))) {
+        p.log.error(`Could not find/kill the process on port ${PORT}.`);
         process.exit(1);
       }
-      await execFileAsync("kill", ["-9", ...pids]);
       p.log.info(`Killed process on port ${PORT}, retrying…`);
+      await new Promise((r) => setTimeout(r, 500));
     }
 
     await new Promise<void>((resolve, reject) => {
@@ -388,39 +477,53 @@ async function main() {
   });
   logger.info(`Listening on port ${PORT}`);
 
-  let tunnel: Awaited<ReturnType<typeof startTunnel>>;
-  let publicUrl: string | null = null;
-  let tunnelDown = false;
+  // ── Public reachability ──────────────────────────────────────────────────────
+  let tunnel: Tunnel = { publicUrl: null, close: () => {} };
+  let tunnelState: TunnelState | null = null;
+  let tunnelAttempt = 0;
   let tunnelStartedAt: Date | null = null;
   let rerenderApp: ((node: React.ReactElement) => void) | null = null;
 
-  if (boreReady) {
+  if (shareMode === "direct" && directHost) {
+    const hostPort = directHost.includes(":") ? directHost : `${directHost}:${PORT}`;
+    urls.public = `https://${hostPort}`;
+    logger.info(`Direct mode: public URL ${urls.public}`);
+  } else if (boreReady) {
     logger.info("Starting bore tunnel");
+    const spin = p.spinner();
+    spin.start("Starting tunnel…");
     try {
-      tunnel = await startTunnel(PORT, () => {
-        tunnelDown = true;
-        logger.error("bore tunnel disconnected unexpectedly");
-        rerenderApp?.(makeAppElement());
+      tunnel = await startTunnel(PORT, {
+        onStatus: (state, publicUrl, attempt) => {
+          tunnelState = state;
+          tunnelAttempt = attempt;
+          if (publicUrl) urls.public = publicUrl;
+          if (state === "connected" && !tunnelStartedAt) tunnelStartedAt = new Date();
+          rerenderApp?.(makeAppElement());
+        },
       });
-      publicUrl = tunnel.publicUrl;
-      urls.public = publicUrl;
-      if (publicUrl) {
-        tunnelStartedAt = new Date();
-        logger.info(`Tunnel active: ${publicUrl}`);
-      } else {
-        logger.warn(
-          "Unable to generate public URL: bore did not return a port",
-        );
-      }
+      urls.public = tunnel.publicUrl;
+      tunnelStartedAt = new Date();
+      spin.stop(urls.public ? `Tunnel active: ${urls.public}` : "Tunnel started but returned no port");
+      logger.info(`Tunnel active: ${urls.public}`);
     } catch (err) {
+      spin.stop("Could not start tunnel — sharing on LAN only.");
       logger.warn("Could not start bore tunnel", err);
-      tunnel = { publicUrl: null, close: () => {} };
     }
-  } else {
-    tunnel = { publicUrl: null, close: () => {} };
   }
 
+  // ── TUI ──────────────────────────────────────────────────────────────────────
+  let tokenStatus: TokenStatus = getTokenStatus();
+  const unsubToken = subscribeTokenStatus((s) => {
+    tokenStatus = s;
+    rerenderApp?.(makeAppElement());
+  });
+
+  let cleaned = false;
   function cleanup() {
+    if (cleaned) return;
+    cleaned = true;
+    unsubToken();
     mitmProxy.close();
     tunnel.close();
     detector.close();
@@ -432,14 +535,16 @@ async function main() {
 
   function makeAppElement(): React.ReactElement {
     return React.createElement(App, {
-      publicUrl,
+      publicUrl: urls.public,
       loopbackUrl,
-      lanUrl,
+      lanUrl: urls.lan,
       localPort: PORT,
       sharedUntil: session.sharedUntil,
       getSession: () => getSession(),
-      tunnelDown,
+      tunnelState,
+      tunnelAttempt,
       tunnelStartedAt,
+      tokenStatus,
       onExit: () => {
         cleanup();
         process.exit(0);
@@ -450,24 +555,19 @@ async function main() {
   const { unmount, rerender } = render(makeAppElement());
   rerenderApp = rerender;
 
-  process.on("SIGINT", () => {
+  const shutdown = () => {
     unmount();
     cleanup();
     process.exit(0);
-  });
-
-  process.on("SIGTERM", () => {
-    unmount();
-    cleanup();
-    process.exit(0);
-  });
+  };
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
+  if (IS_WIN) process.on("SIGBREAK", shutdown);
 
   const expiryCheck = setInterval(() => {
     if (isSessionExpired(session)) {
       clearInterval(expiryCheck);
-      unmount();
-      cleanup();
-      process.exit(0);
+      shutdown();
     }
   }, 60_000);
   expiryCheck.unref();
@@ -475,5 +575,6 @@ async function main() {
 
 main().catch((err) => {
   logger.error("Fatal error in main", err);
+  p.log.error(`Fatal: ${(err as Error).message ?? err}`);
   process.exit(1);
 });

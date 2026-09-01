@@ -8,6 +8,8 @@ import {
   type Machine,
   type Session,
 } from "../session/manager.js";
+import type { TokenStatus } from "../proxy/token.js";
+import type { TunnelState } from "../tunnel/index.js";
 
 const IS_DEV = process.env.NODE_ENV === "development";
 
@@ -54,9 +56,29 @@ interface Props {
   localPort: number;
   sharedUntil: Date;
   getSession: () => Session | null;
-  tunnelDown: boolean;
+  tunnelState: TunnelState | null;
+  tunnelAttempt: number;
   tunnelStartedAt: Date | null;
+  tokenStatus: TokenStatus;
   onExit: () => void;
+}
+
+function tokenLine(t: TokenStatus): { text: string; color?: string } {
+  switch (t.state) {
+    case "ok": {
+      if (!t.expiresAt) return { text: "token ok" };
+      const mins = Math.max(0, Math.round((t.expiresAt - Date.now()) / 60000));
+      return { text: `token ok · auto-refresh in ${Math.max(0, mins - 15)}m`, color: "green" };
+    }
+    case "refreshing":
+      return { text: "refreshing token…", color: "yellow" };
+    case "error":
+      return { text: `token refresh failing (${t.failures}x) — retrying`, color: "yellow" };
+    case "dead":
+      return { text: "token dead — run `claude login` on this machine", color: "red" };
+    default:
+      return { text: "token …" };
+  }
 }
 
 function copyToClipboard(text: string): void {
@@ -64,6 +86,9 @@ function copyToClipboard(text: string): void {
   let args: string[];
   if (process.platform === "darwin") {
     cmd = "pbcopy";
+    args = [];
+  } else if (process.platform === "win32") {
+    cmd = "clip";
     args = [];
   } else if (process.env.WAYLAND_DISPLAY) {
     cmd = "wl-copy";
@@ -90,8 +115,10 @@ export function App({
   localPort,
   sharedUntil,
   getSession,
-  tunnelDown,
+  tunnelState,
+  tunnelAttempt,
   tunnelStartedAt,
+  tokenStatus,
   onExit,
 }: Props) {
   const { exit } = useApp();
@@ -105,6 +132,7 @@ export function App({
     null,
   );
   const [copied, setCopied] = useState(false);
+  const [, setTick] = useState(0);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -112,6 +140,7 @@ export function App({
       if (!session) return;
       setPairingCode(session.pairingCode);
       setMachines([...session.machines.values()]);
+      setTick((t) => t + 1);
       if (session.pairingCodeUsed) {
         setView((v) => (v === "pairing" ? "machines" : v));
       }
@@ -183,13 +212,17 @@ export function App({
         </Text>
         <Text dimColor>{formatExpiry(sharedUntil)} remaining</Text>
         <Text dimColor>:{localPort}</Text>
-        {tunnelDown && (
-          <Text color="red">
-            ⚠ tunnel disconnected — receivers can't connect
-            {tunnelStartedAt
-              ? ` (Active for ${formatDuration(tunnelStartedAt)})`
-              : ""}
+        <Text color={tokenLine(tokenStatus).color} dimColor={!tokenLine(tokenStatus).color}>
+          {tokenLine(tokenStatus).text}
+        </Text>
+        {tunnelState === "reconnecting" && (
+          <Text color="yellow">
+            ⟳ tunnel reconnecting (attempt {tunnelAttempt})
+            {tunnelStartedAt ? ` · was up ${formatDuration(tunnelStartedAt)}` : ""}
           </Text>
+        )}
+        {tunnelState === "down" && (
+          <Text color="red">⚠ tunnel down — receivers can't connect (still retrying)</Text>
         )}
       </Box>
 

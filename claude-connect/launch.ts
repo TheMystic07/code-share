@@ -7,60 +7,111 @@ import { promisify } from "node:util";
 import * as p from "@clack/prompts";
 
 import { platform } from "@shared/platforms";
+import type { CredentialPayload } from "@shared/platforms";
+import { DEFAULT_SCOPES } from "@shared/oauth";
 import { apiFetch } from "./fetch";
 import { logger } from "./logger";
-import type { SharerAccount } from "./types";
+import type { SharerAccount, SharerSubscription } from "./types";
 
 const execFileAsync = promisify(execFile);
+const IS_WIN = process.platform === "win32";
 
-// ── Onboarding ────────────────────────────────────────────────────────────────
+// ── Claude Code config (.claude.json) ─────────────────────────────────────────
 
-export function ensureOnboarding() {
-  const claudeJsonPath = path.join(os.homedir(), ".claude.json");
-  let config: Record<string, unknown> = {};
+function claudeJsonPath(): string {
+  // Claude Code keeps .claude.json next to the config dir when CLAUDE_CONFIG_DIR is set.
+  const override = process.env.CLAUDE_CONFIG_DIR?.trim();
+  return override ? path.join(override, ".claude.json") : path.join(os.homedir(), ".claude.json");
+}
+
+function readClaudeJson(): Record<string, unknown> {
   try {
-    config = JSON.parse(fs.readFileSync(claudeJsonPath, "utf8"));
-  } catch {}
+    return JSON.parse(fs.readFileSync(claudeJsonPath(), "utf8")) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
+function writeClaudeJson(config: Record<string, unknown>): void {
+  const file = claudeJsonPath();
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(config, null, 2), { mode: 0o600 });
+}
+
+/**
+ * Makes sure Claude Code launches straight into the prompt on a machine that
+ * has never logged in: marks onboarding as done and, on Windows, pins the
+ * credential backend to the plaintext file we write (Claude Code may otherwise
+ * switch to Windows Credential Manager via a feature flag and find nothing).
+ */
+export function ensureOnboarding() {
+  const config = readClaudeJson();
+  let changed = false;
 
   if (config["hasCompletedOnboarding"] !== true) {
-    p.log.info(
-      "Onboarding not completed — marking it done so Claude launches directly.",
-    );
+    p.log.info("Onboarding not completed — marking it done so Claude launches directly.");
     config["hasCompletedOnboarding"] = true;
-    fs.writeFileSync(claudeJsonPath, JSON.stringify(config, null, 2), {
-      mode: 0o600,
-    });
+    changed = true;
   }
+
+  if (IS_WIN) {
+    const gb = (config["cachedGrowthBookFeatures"] ?? {}) as Record<string, unknown>;
+    if (gb["tengu_windows_credman"] === true) {
+      gb["tengu_windows_credman"] = false;
+      config["cachedGrowthBookFeatures"] = gb;
+      changed = true;
+    }
+  }
+
+  if (changed) writeClaudeJson(config);
 }
 
 // ── Credentials ───────────────────────────────────────────────────────────────
 
-const PLACEHOLDER_CREDENTIALS = {
-  claudeAiOauth: {
-    accessToken: "1234",
-    refreshToken: "",
-    expiresAt: 4102444800000,
-    scopes: [
-      "user:file_upload",
-      "user:inference",
-      "user:mcp_servers",
-      "user:profile",
-      "user:sessions:claude_code",
-    ],
-    subscriptionType: "pro",
-    rateLimitTier: "default_claude_ai",
-  },
-};
+// The receiver never holds a real token: the sharer's MITM replaces the
+// Authorization header. These placeholders only exist so Claude Code believes
+// it is logged in. subscriptionType/rateLimitTier mirror the sharer's plan so
+// Claude Code offers the same model list and modes.
+function placeholderCredentials(sub: SharerSubscription | null): CredentialPayload {
+  return {
+    claudeAiOauth: {
+      accessToken: "claude-share-placeholder",
+      refreshToken: "",
+      expiresAt: 4102444800000, // 2100-01-01 — never triggers a refresh
+      scopes: DEFAULT_SCOPES,
+      subscriptionType: sub?.subscriptionType || "max",
+      rateLimitTier: sub?.rateLimitTier || "default_claude_max_20x",
+    },
+  };
+}
 
-export async function ensureCredentials() {
-  if (await platform().credentialsExist()) return;
+export async function ensureCredentials(sub: SharerSubscription | null) {
+  const desired = placeholderCredentials(sub);
 
-  p.log.warn(
-    "No Claude credentials found. Claude needs this to think you're logged in.",
-  );
+  if (await platform().credentialsExist()) {
+    // Keep a real login untouched; only refresh *our* placeholder when the plan changed.
+    try {
+      const existing = await platform().readCredentialPayload();
+      const cur = existing.claudeAiOauth;
+      const isPlaceholder = cur.accessToken === "claude-share-placeholder" || cur.accessToken === "1234";
+      if (!isPlaceholder) return;
+      if (
+        cur.subscriptionType !== desired.claudeAiOauth.subscriptionType ||
+        cur.rateLimitTier !== desired.claudeAiOauth.rateLimitTier ||
+        cur.accessToken !== desired.claudeAiOauth.accessToken
+      ) {
+        await platform().writeOAuthCredentials({ ...existing, ...desired });
+        logger.info("Updated placeholder credentials to match sharer plan");
+      }
+    } catch (err) {
+      logger.warn("Could not inspect existing credentials", err);
+    }
+    return;
+  }
+
+  p.log.warn("No Claude credentials found. Claude needs this to think you're logged in.");
   const confirm = await p.confirm({
-    message:
-      "Create placeholder credentials so Claude launches without a login prompt?",
+    message: "Create placeholder credentials so Claude launches without a login prompt?",
     initialValue: true,
   });
   if (p.isCancel(confirm) || !confirm) {
@@ -68,17 +119,32 @@ export async function ensureCredentials() {
     return;
   }
 
-  await platform().writeOAuthCredentials(PLACEHOLDER_CREDENTIALS);
+  await platform().writeOAuthCredentials(desired);
   p.log.success("Placeholder credentials created.");
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+/** Resolves the `claude` executable (handles Windows .cmd/.exe shims). */
+export async function findClaude(): Promise<string | null> {
+  const which = IS_WIN ? "where" : "which";
+  try {
+    const { stdout } = await execFileAsync(which, ["claude"]);
+    const candidates = stdout.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+    if (candidates.length === 0) return null;
+    if (!IS_WIN) return candidates[0]!;
+    // Prefer a real executable over the npm .cmd shim (cleaner signal handling).
+    return candidates.find((c) => /\.exe$/i.test(c)) ?? candidates[0]!;
+  } catch {}
+  if (IS_WIN) {
+    const local = path.join(os.homedir(), ".local", "bin", "claude.exe");
+    if (fs.existsSync(local)) return local;
+  }
+  return null;
+}
+
 export async function checkClaudeInstalled(): Promise<boolean> {
-  const which = process.platform === "win32" ? "where" : "which";
-  return execFileAsync(which, ["claude"])
-    .then(() => true)
-    .catch(() => false);
+  return (await findClaude()) !== null;
 }
 
 export async function sessionPost(
@@ -112,47 +178,43 @@ export async function launchClaude(
     id: string;
     proxyUser: string;
     proxyPass: string;
+    sharerSubscription?: SharerSubscription | null;
   },
   claudeArgs: string[] = [],
   sharerAccount: SharerAccount | null = null,
 ) {
-  if (!(await checkClaudeInstalled())) {
+  const claudeBin = await findClaude();
+  if (!claudeBin) {
     p.log.error("Claude Code is not installed or not in PATH.");
-    p.log.info("Install it with: npm install -g @anthropic-ai/claude-code");
+    p.log.info(
+      IS_WIN
+        ? "Install it with: irm https://claude.ai/install.ps1 | iex   (or: npm install -g @anthropic-ai/claude-code)"
+        : "Install it with: curl -fsSL https://claude.ai/install.sh | bash   (or: npm install -g @anthropic-ai/claude-code)",
+    );
     process.exit(1);
   }
 
   ensureOnboarding();
-  await ensureCredentials();
+  await ensureCredentials(meta.sharerSubscription ?? null);
 
   if (sharerAccount) {
-    p.log.info(
-      `Account: ${sharerAccount.displayName} (${sharerAccount.emailAddress})`,
-    );
+    p.log.info(`Account: ${sharerAccount.displayName} (${sharerAccount.emailAddress})`);
   }
 
-  const tmpCert = path.join(os.tmpdir(), `claude-share-ca-${Date.now()}.pem`);
+  const certDir = path.join(os.homedir(), ".claude-share", "tmp");
+  fs.mkdirSync(certDir, { recursive: true });
+  const tmpCert = path.join(certDir, `ca-${process.pid}-${Date.now()}.pem`);
   fs.writeFileSync(tmpCert, caPem, { mode: 0o600 });
 
   const proxyAuth =
-    "Basic " +
-    Buffer.from(`${meta.proxyUser}:${meta.proxyPass}`).toString("base64");
+    "Basic " + Buffer.from(`${meta.proxyUser}:${meta.proxyPass}`).toString("base64");
 
   // Register this Claude session with the sharer
   let sessionId: string | null = null;
   try {
-    const res = await sessionPost(
-      proxyUrl,
-      "/session/start",
-      { machineId: meta.id },
-      caPem,
-      proxyAuth,
-    );
+    const res = await sessionPost(proxyUrl, "/session/start", { machineId: meta.id }, caPem, proxyAuth);
     sessionId = (res["sessionId"] as string) ?? null;
-    if (!sessionId)
-      logger.warn("session/start returned no sessionId", {
-        machineId: meta.id,
-      });
+    if (!sessionId) logger.warn("session/start returned no sessionId", { machineId: meta.id });
   } catch (err) {
     logger.error("session/start failed", err);
   }
@@ -163,10 +225,7 @@ export async function launchClaude(
         void sessionPost(
           proxyUrl,
           "/session/heartbeat",
-          {
-            machineId: meta.id,
-            sessionId: sessionId!,
-          },
+          { machineId: meta.id, sessionId: sessionId! },
           caPem,
           proxyAuth,
         ).catch(() => {});
@@ -174,7 +233,6 @@ export async function launchClaude(
     : null;
 
   p.log.success("\x1b[32mLaunching Claude...\x1b[0m");
-
   p.outro("");
 
   const startTime = Date.now();
@@ -187,28 +245,37 @@ export async function launchClaude(
   parsedProxy.password = encodeURIComponent(meta.proxyPass);
   const httpProxyUrl = parsedProxy.toString();
 
-  const child = spawn("claude", claudeArgs, {
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    HTTPS_PROXY: httpProxyUrl,
+    HTTP_PROXY: httpProxyUrl,
+    NODE_EXTRA_CA_CERTS: tmpCert,
+    SSL_CERT_FILE: tmpCert,
+    CURL_CA_BUNDLE: tmpCert,
+  };
+  // Any stale auth env would take precedence over the placeholder login and
+  // bypass the proxy's model discovery — make sure it's clear.
+  delete env.ANTHROPIC_API_KEY;
+  delete env.ANTHROPIC_AUTH_TOKEN;
+  delete env.CLAUDE_CODE_OAUTH_TOKEN;
+
+  const useShell = IS_WIN && /\.(cmd|bat)$/i.test(claudeBin);
+  const child = spawn(useShell ? `"${claudeBin}"` : claudeBin, claudeArgs, {
     stdio: "inherit",
-    env: {
-      ...process.env,
-      HTTPS_PROXY: httpProxyUrl,
-      HTTP_PROXY: httpProxyUrl,
-      NODE_EXTRA_CA_CERTS: tmpCert,
-      SSL_CERT_FILE: tmpCert,
-      CURL_CA_BUNDLE: tmpCert,
-    },
+    env,
+    shell: useShell,
+    windowsHide: false,
   });
 
+  let exiting = false;
   async function cleanupAndExit(code: number | null) {
+    if (exiting) return;
+    exiting = true;
     if (heartbeat) clearInterval(heartbeat);
     if (sessionId) {
-      await sessionPost(
-        proxyUrl,
-        "/session/end",
-        { machineId: meta.id, sessionId },
-        caPem,
-        proxyAuth,
-      ).catch(() => {});
+      await sessionPost(proxyUrl, "/session/end", { machineId: meta.id, sessionId }, caPem, proxyAuth).catch(
+        () => {},
+      );
     }
     try {
       fs.unlinkSync(tmpCert);
@@ -227,25 +294,16 @@ export async function launchClaude(
   child.on("error", (err) => {
     logger.error("Failed to launch claude process", err);
     p.log.error(`Failed to launch claude: ${err.message}`);
-    p.log.warn(
-      "Is 'claude' installed? Run: npm install -g @anthropic-ai/claude-code",
-    );
-    if (heartbeat) clearInterval(heartbeat);
-    if (sessionId) {
-      void sessionPost(
-        proxyUrl,
-        "/session/end",
-        { machineId: meta.id, sessionId },
-        caPem,
-        proxyAuth,
-      ).catch(() => {});
-    }
-    try {
-      fs.unlinkSync(tmpCert);
-    } catch {}
-    process.exit(1);
+    p.log.warn("Is 'claude' installed? See https://docs.claude.com/en/docs/claude-code/setup");
+    void cleanupAndExit(1);
   });
 
-  process.on("SIGINT", () => child.kill("SIGINT"));
-  process.on("SIGTERM", () => child.kill("SIGTERM"));
+  // On Windows Ctrl+C is delivered to the whole console group, so the child
+  // already gets it; forwarding is only needed on POSIX.
+  if (!IS_WIN) {
+    process.on("SIGINT", () => child.kill("SIGINT"));
+    process.on("SIGTERM", () => child.kill("SIGTERM"));
+  } else {
+    process.on("SIGINT", () => {});
+  }
 }

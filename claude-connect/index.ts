@@ -60,10 +60,17 @@ args.forEach((a, i) => {
     if (args[i + 1] && !args[i + 1].startsWith("-")) ownIdxs.add(i + 1);
   }
   if (a.startsWith("--share=")) ownIdxs.add(i);
+  if (a === "--share") {
+    ownIdxs.add(i);
+    if (args[i + 1]) ownIdxs.add(i + 1);
+  }
 });
 
 const claudeArgs = args.filter((_, i) => !ownIdxs.has(i));
-const shareArg = args.find((a) => a.startsWith("--share="));
+const shareEqArg = args.find((a) => a.startsWith("--share="));
+const shareIdx = args.indexOf("--share");
+const shareArg =
+  shareEqArg ?? (shareIdx !== -1 && args[shareIdx + 1] ? `--share=${args[shareIdx + 1]}` : undefined);
 
 pruneExpiredConnections();
 

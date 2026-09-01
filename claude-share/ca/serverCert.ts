@@ -1,3 +1,5 @@
+import net from "node:net";
+
 import forge from "node-forge";
 
 export interface ServerCert {
@@ -5,12 +7,18 @@ export interface ServerCert {
   keyPem: string;
 }
 
+export interface CertHosts {
+  /** DNS names receivers may connect with (bore host, custom domain, …) */
+  hostnames: string[];
+  /** IP addresses receivers may connect with (LAN IP, public IP, …) */
+  ips: string[];
+}
+
 /** Generates a TLS server cert for the API port, signed by the MITM CA. */
 export async function generateServerCert(
   caCertPem: string,
   caKeyPem: string,
-  lanIp: string | null,
-  publicHostname: string = "bore.pub",
+  hosts: CertHosts,
 ): Promise<ServerCert> {
   const caCert = forge.pki.certificateFromPem(caCertPem);
   const caKey = forge.pki.privateKeyFromPem(caKeyPem);
@@ -32,12 +40,19 @@ export async function generateServerCert(
   cert.setSubject([{ name: "commonName", value: "claude-share-api" }]);
   cert.setIssuer(caCert.subject.attributes);
 
+  const dns = new Set<string>(["localhost"]);
+  const ips = new Set<string>(["127.0.0.1"]);
+  for (const h of hosts.hostnames) {
+    if (!h) continue;
+    if (net.isIP(h)) ips.add(h);
+    else dns.add(h);
+  }
+  for (const ip of hosts.ips) if (ip && net.isIP(ip)) ips.add(ip);
+
   const altNames: { type: number; value?: string; ip?: string }[] = [
-    { type: 2, value: "localhost" },
-    { type: 2, value: publicHostname },
-    { type: 7, ip: "127.0.0.1" },
+    ...[...dns].map((value) => ({ type: 2, value })),
+    ...[...ips].map((ip) => ({ type: 7, ip })),
   ];
-  if (lanIp) altNames.push({ type: 7, ip: lanIp });
 
   cert.setExtensions([
     { name: "basicConstraints", cA: false },

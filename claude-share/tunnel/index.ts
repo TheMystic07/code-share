@@ -1,4 +1,4 @@
-import { execFile, spawn } from "node:child_process";
+import { execFile, spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import https from "node:https";
 import os from "node:os";
@@ -7,27 +7,44 @@ import { promisify } from "node:util";
 
 import * as p from "@clack/prompts";
 
+import { logger } from "../logger";
+
 const execFileAsync = promisify(execFile);
 
 // Baked in at build time via --define; fall back to bore.pub in dev mode.
 const BORE_SERVER = process.env.BORE_SERVER ?? "bore.pub";
 const BORE_PASSWORD = process.env.BORE_PASSWORD ?? "";
 
-// Where we install bore on Linux when it isn't already in PATH
-const BORE_LOCAL_PATH = path.join(os.homedir(), ".local", "bin", "bore");
+const IS_WIN = process.platform === "win32";
+
+// Where we install bore when it isn't already in PATH
+const BORE_LOCAL_PATH = IS_WIN
+  ? path.join(os.homedir(), ".claude-share", "bin", "bore.exe")
+  : path.join(os.homedir(), ".local", "bin", "bore");
+
+export type TunnelState = "connected" | "reconnecting" | "down";
 
 export interface Tunnel {
   publicUrl: string | null;
   close(): void;
 }
 
+export interface TunnelEvents {
+  /** Called on every state change; `publicUrl` is the current URL (stable across reconnects). */
+  onStatus?: (state: TunnelState, publicUrl: string | null, attempt: number) => void;
+}
+
+export function boreServer(): string {
+  return BORE_SERVER;
+}
+
 // Returns the bore binary path (from PATH or the known local install location),
 // or null if bore is not found.
 async function getBorePath(): Promise<string | null> {
   try {
-    const { stdout } = await execFileAsync("which", ["bore"]);
-    const p = stdout.trim();
-    if (p) return p;
+    const { stdout } = await execFileAsync(IS_WIN ? "where" : "which", ["bore"]);
+    const first = stdout.split(/\r?\n/).map((s) => s.trim()).find(Boolean);
+    if (first) return first;
   } catch {}
   try {
     await fs.promises.access(BORE_LOCAL_PATH, fs.constants.X_OK);
@@ -43,15 +60,14 @@ export async function isBoreInstalled(): Promise<boolean> {
 // Follow redirects and return the final response.
 function httpsGet(url: string): Promise<import("http").IncomingMessage> {
   return new Promise((resolve, reject) => {
-    const attempt = (target: string) => {
+    const attempt = (target: string, hops = 0) => {
+      if (hops > 5) return reject(new Error("Too many redirects"));
       https
         .get(target, { headers: { "User-Agent": "claude-share" } }, (res) => {
-          if (
-            (res.statusCode === 301 || res.statusCode === 302) &&
-            res.headers.location
-          ) {
+          const st = res.statusCode ?? 0;
+          if ((st === 301 || st === 302 || st === 307 || st === 308) && res.headers.location) {
             res.resume();
-            attempt(res.headers.location);
+            attempt(res.headers.location, hops + 1);
           } else {
             resolve(res);
           }
@@ -92,19 +108,45 @@ async function downloadToFile(url: string, dest: string): Promise<void> {
   });
 }
 
-// Node process.arch → bore release target triple prefix
-const ARCH_MAP: Record<string, string> = {
-  x64: "x86_64-unknown-linux-musl",
-  arm64: "aarch64-unknown-linux-musl",
-  arm: "armv7-unknown-linux-musleabihf",
-  ia32: "i686-unknown-linux-musl",
-};
+// (platform, arch) → bore release target triple + archive extension
+function releaseTarget(): { triple: string; ext: "tar.gz" | "zip" } | null {
+  const arch = process.arch;
+  switch (process.platform) {
+    case "linux": {
+      const m: Record<string, string> = {
+        x64: "x86_64-unknown-linux-musl",
+        arm64: "aarch64-unknown-linux-musl",
+        arm: "armv7-unknown-linux-musleabihf",
+        ia32: "i686-unknown-linux-musl",
+      };
+      return m[arch] ? { triple: m[arch], ext: "tar.gz" } : null;
+    }
+    case "darwin": {
+      const m: Record<string, string> = {
+        x64: "x86_64-apple-darwin",
+        arm64: "aarch64-apple-darwin",
+      };
+      return m[arch] ? { triple: m[arch], ext: "tar.gz" } : null;
+    }
+    case "win32": {
+      const m: Record<string, string> = {
+        x64: "x86_64-pc-windows-msvc",
+        ia32: "i686-pc-windows-msvc",
+        // No native arm64 build — the x64 binary runs under emulation.
+        arm64: "x86_64-pc-windows-msvc",
+      };
+      return m[arch] ? { triple: m[arch], ext: "zip" } : null;
+    }
+    default:
+      return null;
+  }
+}
 
-async function installBoreLinux(): Promise<void> {
-  const triple = ARCH_MAP[process.arch];
-  if (!triple) {
+async function installBoreFromGithub(): Promise<void> {
+  const target = releaseTarget();
+  if (!target) {
     throw new Error(
-      `No pre-built bore binary for arch "${process.arch}". ` +
+      `No pre-built bore binary for ${process.platform}/${process.arch}. ` +
         "Install bore manually: https://github.com/ekzhang/bore",
     );
   }
@@ -113,24 +155,24 @@ async function installBoreLinux(): Promise<void> {
     "https://api.github.com/repos/ekzhang/bore/releases/latest",
   )) as { tag_name: string };
   const tag = release.tag_name; // e.g. "v0.6.0"
-  const filename = `bore-${tag}-${triple}.tar.gz`;
+  const filename = `bore-${tag}-${target.triple}.${target.ext}`;
   const downloadUrl = `https://github.com/ekzhang/bore/releases/download/${tag}/${filename}`;
 
-  const tmpDir = await fs.promises.mkdtemp(
-    path.join(os.tmpdir(), "bore-install-"),
-  );
-  const tarPath = path.join(tmpDir, filename);
+  const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "bore-install-"));
+  const archivePath = path.join(tmpDir, filename);
+  const binName = IS_WIN ? "bore.exe" : "bore";
 
   try {
-    await downloadToFile(downloadUrl, tarPath);
+    await downloadToFile(downloadUrl, archivePath);
 
-    // Archive contains a single file named "bore" at root
-    await execFileAsync("tar", ["xzf", tarPath, "-C", tmpDir, "bore"]);
+    // Archive contains a single file named "bore"/"bore.exe" at root.
+    // `tar` handles .tar.gz everywhere and .zip on Windows 10+ (bsdtar).
+    await execFileAsync("tar", ["-xf", archivePath, "-C", tmpDir, binName]);
 
     const installDir = path.dirname(BORE_LOCAL_PATH);
     await fs.promises.mkdir(installDir, { recursive: true });
-    await fs.promises.copyFile(path.join(tmpDir, "bore"), BORE_LOCAL_PATH);
-    await fs.promises.chmod(BORE_LOCAL_PATH, 0o755);
+    await fs.promises.copyFile(path.join(tmpDir, binName), BORE_LOCAL_PATH);
+    if (!IS_WIN) await fs.promises.chmod(BORE_LOCAL_PATH, 0o755);
   } finally {
     await fs.promises.rm(tmpDir, { recursive: true, force: true });
   }
@@ -139,113 +181,160 @@ async function installBoreLinux(): Promise<void> {
 export async function installBore(): Promise<void> {
   const spin = p.spinner();
 
-  if (process.platform === "linux") {
-    spin.start("Downloading bore binary from GitHub...");
+  spin.start("Downloading bore binary from GitHub...");
+  try {
+    await installBoreFromGithub();
+    spin.stop(`bore installed to ${BORE_LOCAL_PATH}`);
+    return;
+  } catch (err) {
+    spin.stop(`Binary download failed: ${(err as Error).message}.`);
+  }
+
+  // Fallbacks: brew on macOS, cargo anywhere.
+  const candidates: Array<[string, string[]]> = [];
+  if (process.platform === "darwin") candidates.push(["brew", ["install", "bore-cli"]]);
+  candidates.push(["cargo", ["install", "bore-cli"]]);
+
+  for (const [bin, args] of candidates) {
     try {
-      await installBoreLinux();
-      spin.stop(`bore installed to ${BORE_LOCAL_PATH}`);
+      await execFileAsync(IS_WIN ? "where" : "which", [bin]);
+    } catch {
+      continue;
+    }
+    spin.start(`Running: ${bin} ${args.join(" ")}`);
+    try {
+      await execFileAsync(bin, args, { shell: IS_WIN });
+      spin.stop(`bore installed via ${bin}.`);
       return;
     } catch (err) {
-      spin.stop(`Binary download failed: ${(err as Error).message}. Falling back to cargo...`);
+      spin.stop(`${bin} install failed: ${(err as Error).message}`);
     }
-    // Fallback: cargo
-    spin.start("Running: cargo install bore-cli");
-    try {
-      await execFileAsync("cargo", ["install", "bore-cli"]);
-      spin.stop("bore installed via cargo.");
-    } catch (err) {
-      spin.stop("Installation failed.");
-      throw new Error(`Could not install bore: ${(err as Error).message}`);
-    }
-    return;
   }
 
-  if (process.platform === "darwin") {
-    let bin: string;
-    let args: string[];
-    let label: string;
-    try {
-      await execFileAsync("which", ["brew"]);
-      bin = "brew";
-      args = ["install", "bore-cli"];
-      label = "brew install bore-cli";
-    } catch {
-      bin = "cargo";
-      args = ["install", "bore-cli"];
-      label = "cargo install bore-cli";
-    }
-    spin.start(`Running: ${label}`);
-    try {
-      await execFileAsync(bin, args);
-      spin.stop("bore installed.");
-    } catch (err) {
-      spin.stop("Installation failed.");
-      throw new Error(`Could not install bore: ${(err as Error).message}`);
-    }
-    return;
-  }
-
-  throw new Error(
-    "Unsupported platform — install bore manually: https://github.com/ekzhang/bore",
-  );
+  throw new Error("Could not install bore — install it manually: https://github.com/ekzhang/bore");
 }
 
+/**
+ * Starts a bore tunnel and keeps it alive: if the bore process dies (bore.pub
+ * hiccup, network blip) we reconnect and ask for the *same* remote port so the
+ * public URL the receiver saved keeps working.
+ */
 export async function startTunnel(
   localPort: number,
-  onDown?: () => void,
+  events: TunnelEvents = {},
 ): Promise<Tunnel> {
   const boreBin = (await getBorePath()) ?? "bore";
-  const args = ["local", String(localPort), "--to", BORE_SERVER];
-  if (BORE_PASSWORD) args.push("--secret", BORE_PASSWORD);
 
-  return new Promise((resolve, reject) => {
-    const proc = spawn(boreBin, args, { stdio: ["ignore", "pipe", "pipe"] });
+  let closing = false;
+  let proc: ChildProcess | null = null;
+  let remotePort: number | null = null;
+  let publicUrl: string | null = null;
+  let attempt = 0;
+  let reconnectTimer: NodeJS.Timeout | null = null;
 
-    let settled = false;
-    let closing = false;
-    const timeout = setTimeout(() => {
-      if (!settled) {
-        settled = true;
-        proc.kill();
-        reject(new Error("bore timed out"));
+  function spawnOnce(requestPort: number | null): Promise<number> {
+    const args = ["local", String(localPort), "--to", BORE_SERVER];
+    if (requestPort) args.push("--port", String(requestPort));
+    if (BORE_PASSWORD) args.push("--secret", BORE_PASSWORD);
+
+    return new Promise((resolve, reject) => {
+      const child = spawn(boreBin, args, {
+        stdio: ["ignore", "pipe", "pipe"],
+        windowsHide: true,
+      });
+      proc = child;
+
+      let settled = false;
+      const timeout = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          child.kill();
+          reject(new Error("bore timed out"));
+        }
+      }, 30_000);
+
+      function onData(chunk: Buffer) {
+        const text = chunk.toString();
+        const match = text.match(/listening at \S+:(\d+)/i);
+        if (match && !settled) {
+          settled = true;
+          clearTimeout(timeout);
+          resolve(parseInt(match[1], 10));
+        }
+        if (/error|failed|denied/i.test(text)) logger.warn(`[bore] ${text.trim()}`);
       }
-    }, 30_000);
 
-    function onData(chunk: Buffer) {
-      const text = chunk.toString();
-      const match = text.match(/listening at \S+:(\d+)/i);
-      if (match && !settled) {
-        settled = true;
-        clearTimeout(timeout);
-        resolve({
-          publicUrl: `https://${BORE_SERVER}:${match[1]}`,
-          close() {
-            closing = true;
-            proc.kill();
-          },
-        });
-      }
-    }
+      child.stdout?.on("data", onData);
+      child.stderr?.on("data", onData);
 
-    proc.stdout.on("data", onData);
-    proc.stderr.on("data", onData);
+      child.on("error", (err) => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timeout);
+          reject(err);
+        }
+      });
 
-    proc.on("error", (err) => {
-      if (!settled) {
-        settled = true;
-        clearTimeout(timeout);
-        reject(err);
-      }
+      child.on("exit", (code) => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timeout);
+          reject(new Error(`bore exited with code ${code}`));
+        } else if (!closing && proc === child) {
+          logger.warn(`[bore] tunnel process exited (code ${code}) — reconnecting`);
+          scheduleReconnect();
+        }
+      });
     });
+  }
 
-    proc.on("exit", (code) => {
-      if (!settled) {
-        settled = true;
-        clearTimeout(timeout);
-        reject(new Error(`bore exited with code ${code}`));
-      } else if (!closing) {
-        onDown?.();
+  function scheduleReconnect() {
+    if (closing || reconnectTimer) return;
+    attempt += 1;
+    events.onStatus?.("reconnecting", publicUrl, attempt);
+    const delay = Math.min(2_000 * 2 ** Math.min(attempt - 1, 5), 60_000);
+    reconnectTimer = setTimeout(async () => {
+      reconnectTimer = null;
+      if (closing) return;
+      try {
+        // Ask for the same port so saved connect URLs stay valid; if the
+        // server refuses it (someone grabbed it), fall back to a new port.
+        let port: number;
+        try {
+          port = await spawnOnce(remotePort);
+        } catch (err) {
+          if (!remotePort) throw err;
+          logger.warn("[bore] could not reclaim previous port, requesting a new one", err);
+          port = await spawnOnce(null);
+        }
+        remotePort = port;
+        const url = `https://${BORE_SERVER}:${port}`;
+        const changed = url !== publicUrl;
+        publicUrl = url;
+        attempt = 0;
+        logger.info(`[bore] tunnel reconnected at ${url}${changed ? " (port changed)" : ""}`);
+        events.onStatus?.("connected", publicUrl, 0);
+      } catch (err) {
+        logger.warn("[bore] reconnect failed", err);
+        if (attempt >= 30) events.onStatus?.("down", publicUrl, attempt);
+        scheduleReconnect();
       }
-    });
-  });
+    }, delay);
+    reconnectTimer.unref();
+  }
+
+  remotePort = await spawnOnce(null);
+  publicUrl = `https://${BORE_SERVER}:${remotePort}`;
+  events.onStatus?.("connected", publicUrl, 0);
+
+  return {
+    get publicUrl() {
+      return publicUrl;
+    },
+    close() {
+      closing = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      proc?.kill();
+    },
+  };
 }

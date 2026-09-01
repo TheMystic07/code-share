@@ -13,6 +13,7 @@ import {
   type ConnectionFile,
   type SharerAccount,
 } from "../session/manager";
+import type { SharerSubscription } from "@shared/types";
 
 interface Urls {
   public: string | null;
@@ -24,6 +25,7 @@ export function createApiApp(
   caPem: string,
   sharerAccount: SharerAccount | null,
   systemName: string,
+  getSubscription: () => SharerSubscription | null = () => null,
 ): Hono {
   const app = new Hono();
 
@@ -84,6 +86,7 @@ export function createApiApp(
       sharedUntil: session.sharedUntil.toISOString(),
       caPem,
       sharerAccount,
+      sharerSubscription: getSubscription(),
       systemName,
       proxyUser: machine.id,
       proxyPass: machine.proxyPass,

@@ -154,7 +154,7 @@ export function App({
 
   const connectUrl = useCallback(
     (base: string) =>
-      `claudeshare://${base.replace(/^https?:\/\//, "")}/connect/${pairingCode}`,
+      `codeshare://${base.replace(/^https?:\/\//, "")}/connect/${pairingCode}`,
     [pairingCode],
   );
 
@@ -208,7 +208,7 @@ export function App({
       {/* Header */}
       <Box gap={2} marginBottom={1}>
         <Text bold color="cyan">
-          claude-share
+          code-share
         </Text>
         <Text dimColor>{formatExpiry(sharedUntil)} remaining</Text>
         <Text dimColor>:{localPort}</Text>
@@ -266,7 +266,7 @@ export function App({
           <Box flexDirection="column" marginTop={1} gap={0}>
             <Text dimColor>One-time code — only one machine can use it.</Text>
             <Text dimColor>
-              Ask your friend to run <Text color="white">claude-connect</Text>{" "}
+              Ask your friend to run <Text color="white">code-connect</Text>{" "}
               and paste the link above.
             </Text>
           </Box>

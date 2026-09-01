@@ -138,7 +138,7 @@ export async function createMitmProxy(
   checkAuth: (authHeader: string) => boolean = () => false,
 ): Promise<MitmProxy> {
   const sslCaDir = await fs.promises.mkdtemp(
-    path.join(os.tmpdir(), "claude-share-mitm-"),
+    path.join(os.tmpdir(), "code-share-mitm-"),
   );
 
   return new Promise<MitmProxy>((resolve, reject) => {
@@ -205,7 +205,7 @@ export async function createMitmProxy(
           res.end(
             JSON.stringify({
               type: "error",
-              error: { type: "api_error", message: `[claude-share] upstream error: ${err.message ?? err}` },
+              error: { type: "api_error", message: `[code-share] upstream error: ${err.message ?? err}` },
             }),
           );
         } else if (res && !res.writableEnded) {
@@ -217,7 +217,7 @@ export async function createMitmProxy(
     function deny(ctx: any, method: string, hostname: string, reqPath: string) {
       logRequest(method, hostname, reqPath, "blocked");
       ctx.proxyToClientResponse.writeHead(403, { "Content-Type": "text/plain" });
-      ctx.proxyToClientResponse.end("Not allowed by claude-share policy");
+      ctx.proxyToClientResponse.end("Not allowed by code-share policy");
     }
 
     proxy.onRequest((ctx: any, callback: () => void) => {
@@ -277,7 +277,7 @@ export async function createMitmProxy(
                   error: {
                     type: "overloaded_error",
                     message:
-                      "[claude-share] The sharer's token expired — refreshing it now, please retry.",
+                      "[code-share] The sharer's token expired — refreshing it now, please retry.",
                   },
                 }
               : {
@@ -285,7 +285,7 @@ export async function createMitmProxy(
                   error: {
                     type: "authentication_error",
                     message:
-                      "[claude-share] The sharer's Anthropic token is invalid and could not be refreshed. The sharer must run 'claude login'.",
+                      "[code-share] The sharer's Anthropic token is invalid and could not be refreshed. The sharer must run 'claude login'.",
                   },
                 },
           ),
@@ -334,7 +334,7 @@ export async function createMitmProxy(
         if (!checkAuth(connectAuth)) {
           socket.write(
             "HTTP/1.1 407 Proxy Authentication Required\r\n" +
-              'Proxy-Authenticate: Basic realm="claude-share"\r\n' +
+              'Proxy-Authenticate: Basic realm="code-share"\r\n' +
               "Content-Length: 0\r\n" +
               "\r\n",
           );

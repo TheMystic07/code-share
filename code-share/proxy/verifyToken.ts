@@ -30,7 +30,7 @@ export async function verifyTokenOrExit(): Promise<void> {
   if (!exists) {
     p.log.error(
       "Could not find Claude Code credentials on this machine.\n" +
-        "Run 'claude' and log in, then restart claude-share.",
+        "Run 'claude' and log in, then restart code-share.",
     );
     process.exit(1);
   }
@@ -78,7 +78,7 @@ export async function verifyTokenOrExit(): Promise<void> {
   p.log.error(
     (st.lastError ? `${st.lastError}\n` : "") +
       "Re-login on this machine: claude logout && claude login\n" +
-      "Then restart claude-share.",
+      "Then restart code-share.",
   );
   process.exit(1);
 }

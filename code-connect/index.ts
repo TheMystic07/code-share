@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import "@shared/patch-console";
+import "@shared/paths";
 import * as p from "@clack/prompts";
 
 import { platform } from "@shared/platforms";
@@ -50,7 +51,7 @@ await checkForUpdate();
 
 const args = process.argv.slice(2);
 
-// Identify which arg indices belong to claude-connect itself
+// Identify which arg indices belong to code-connect itself
 const ownIdxs = new Set<number>();
 args.forEach((a, i) => {
   if (a === "--list" || a === "-l") ownIdxs.add(i);
@@ -75,7 +76,7 @@ const shareArg =
 pruneExpiredConnections();
 
 if (!hasAgreedToTerms()) {
-  p.intro("claude-connect");
+  p.intro("code-connect");
   p.log.warn(
     "Heads up: you're connecting to someone else's Claude Code at your own discretion.\n" +
       "By design, the sharer's machine could potentially see your Claude Code messages\n" +
@@ -106,7 +107,7 @@ if (args[0] === "--list" || args[0] === "-l") {
   const parsed = parseConnectUrl(connectUrl);
   if (!parsed) {
     p.log.error(
-      "Invalid --share URL. Expected: claudeshare://host:port/connect/CODE",
+      "Invalid --share URL. Expected: codeshare://host:port/connect/CODE",
     );
     process.exit(1);
   }
@@ -117,7 +118,7 @@ if (args[0] === "--list" || args[0] === "-l") {
     const resolved = await resolveActiveUrl(existing);
     if (resolved.alive && resolved.sessionId === existing.sessionId) {
       // Same session still running — skip pairing entirely
-      p.intro("claude-connect");
+      p.intro("code-connect");
       p.log.info(`Resuming existing connection for ${existing.systemName}`);
       await launchClaude(
         resolved.url,
@@ -160,7 +161,7 @@ if (args[0] === "--list" || args[0] === "-l") {
     const active = results.filter((r) => r.alive);
 
     if (active.length > 0) {
-      p.intro("claude-connect");
+      p.intro("code-connect");
       const pick = await p.select({
         message: "Connect to an active sharer or pair with a new one:",
         options: [

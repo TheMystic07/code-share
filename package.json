@@ -1,7 +1,7 @@
 {
-  "name": "@0xpv/claude-share",
+  "name": "@themystic07/code-share",
   "version": "1.4.0",
-  "description": "Share or connect to a friend's Claude Code subscription",
+  "description": "Share your Claude Code subscription with your other machines — sharer (code-share) and receiver (code-connect)",
   "type": "module",
   "license": "MIT",
   "keywords": [
@@ -15,27 +15,27 @@
     "node": ">=18"
   },
   "bin": {
-    "claude-share": "dist/claude-share/index.js",
-    "claude-connect": "dist/claude-connect/index.js"
+    "code-share": "dist/code-share/index.js",
+    "code-connect": "dist/code-connect/index.js"
   },
   "files": [
     "dist"
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/prathamVaidya/claude-share.git"
+    "url": "git+https://github.com/TheMystic07/code-share.git"
   },
   "publishConfig": {
     "access": "public"
   },
   "scripts": {
     "build": "bun scripts/build.ts",
-    "dev:share": "bun claude-share/index.ts",
-    "dev:connect": "bun claude-connect/index.ts",
-    "start:share": "node dist/claude-share/index.js",
-    "start:connect": "node dist/claude-connect/index.js",
-    "lint": "oxlint claude-share claude-connect shared",
-    "fmt": "oxfmt --config .oxfmtrc.json claude-share claude-connect shared",
+    "dev:share": "bun code-share/index.ts",
+    "dev:connect": "bun code-connect/index.ts",
+    "start:share": "node dist/code-share/index.js",
+    "start:connect": "node dist/code-connect/index.js",
+    "lint": "oxlint code-share code-connect shared",
+    "fmt": "oxfmt --config .oxfmtrc.json code-share code-connect shared",
     "prepublishOnly": "npm run lint && npm run build"
   },
   "dependencies": {

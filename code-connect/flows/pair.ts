@@ -17,7 +17,7 @@ export async function pairFlow(
   prefill?: { serverUrl: string; pairingCode: string },
   claudeArgs: string[] = [],
 ) {
-  p.intro("claude-connect — pair with a new sharer");
+  p.intro("code-connect — pair with a new sharer");
 
   let serverUrl: string;
   let pairingCode: string;
@@ -29,11 +29,13 @@ export async function pairFlow(
   } else {
     const input = await p.text({
       message: "Connect link or sharer URL:",
-      placeholder: "claudeshare://192.168.x.x:2586/connect/CODE",
+      placeholder: "codeshare://192.168.x.x:2586/connect/CODE",
       validate: (v) =>
-        v?.startsWith("claudeshare://") || v?.startsWith("https://")
+        v?.startsWith("codeshare://") ||
+        v?.startsWith("claudeshare://") ||
+        v?.startsWith("https://")
           ? undefined
-          : "Must be a claudeshare:// URL",
+          : "Must be a codeshare:// URL",
     });
     if (p.isCancel(input)) {
       p.cancel("Cancelled.");

@@ -3,4 +3,4 @@ dist/
 *.js.map
 .env
 .http-mitm-proxy
-claude-share-dev.log
+code-share-dev.log

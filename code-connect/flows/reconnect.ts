@@ -26,7 +26,7 @@ export async function reconnectFlow(
     }
     chosen = match;
   } else {
-    p.intro("claude-connect — reconnect");
+    p.intro("code-connect — reconnect");
     const pick = await p.select({
       message: "Choose a connection:",
       options: connections.map((c) => ({

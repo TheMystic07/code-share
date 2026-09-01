@@ -12,7 +12,7 @@ const execFileAsync = promisify(execFile);
 const CURRENT_VERSION: string = pkg.version;
 const PACKAGE_NAME: string = pkg.name;
 const REGISTRY_URL = `https://registry.npmjs.org/${PACKAGE_NAME}`;
-const CONFIG_FILE = path.join(os.homedir(), ".claude-share", "config.json");
+const CONFIG_FILE = path.join(os.homedir(), ".code-share", "config.json");
 
 // ── Config helpers ────────────────────────────────────────────────────────────
 

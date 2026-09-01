@@ -37,7 +37,7 @@ export async function generateServerCert(
   cert.validity.notAfter = new Date();
   cert.validity.notAfter.setFullYear(cert.validity.notBefore.getFullYear() + 2);
 
-  cert.setSubject([{ name: "commonName", value: "claude-share-api" }]);
+  cert.setSubject([{ name: "commonName", value: "code-share-api" }]);
   cert.setIssuer(caCert.subject.attributes);
 
   const dns = new Set<string>(["localhost"]);

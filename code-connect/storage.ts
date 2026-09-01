@@ -6,7 +6,7 @@ import type { ReceiverConfig, SavedConnection } from "./types";
 
 // ── Paths ────────────────────────────────────────────────────────────────────
 
-export const CLAUDE_SHARE_DIR = path.join(os.homedir(), ".claude-share");
+export const CLAUDE_SHARE_DIR = path.join(os.homedir(), ".code-share");
 export const CONNECTIONS_DIR = path.join(CLAUDE_SHARE_DIR, "connections");
 const CONFIG_FILE = path.join(CLAUDE_SHARE_DIR, "config.json");
 

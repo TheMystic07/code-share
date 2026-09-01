@@ -1,8 +1,10 @@
-# claude-share
+# code-share
 
-Securely share your Claude Code subscription with others.
+Securely share your Claude Code subscription with your other machines (or a friend).
 
-One machine runs **claude-share** to expose its Claude credentials through a local proxy. Other machines run **claude-connect** to connect and use Claude Code as if they had their own subscription.
+> Fork of [`@0xpv/claude-share`](https://github.com/prathamVaidya/claude-share), renamed to `code-share` / `code-connect` and published as `@themystic07/code-share`. Old `claudeshare://` links and `~/.claude-share` state are still accepted/migrated.
+
+One machine runs **code-share** to expose its Claude credentials through a local proxy. Other machines run **code-connect** to connect and use Claude Code as if they had their own subscription.
 
 ---
 
@@ -11,7 +13,7 @@ One machine runs **claude-share** to expose its Claude credentials through a loc
 ```
 Receiver machine                    Sharer machine
 ─────────────────                   ──────────────────────────────
-claude (CLI)                        claude-share
+claude (CLI)                        code-share
   │                                   │
   │  HTTPS_PROXY=...                  ├─ MITM proxy (intercepts Anthropic API calls)
   └──────────────────────────────────>│    injects sharer's OAuth token
@@ -31,10 +33,10 @@ claude (CLI)                        claude-share
 ## Install
 
 ```bash
-npm install -g @0xpv/claude-share
+npm install -g @themystic07/code-share
 ```
 
-This installs both `claude-share` and `claude-connect` binaries.
+This installs both `code-share` and `code-connect` binaries.
 
 ---
 
@@ -43,7 +45,7 @@ This installs both `claude-share` and `claude-connect` binaries.
 ### Sharer
 
 ```bash
-claude-share
+code-share
 ```
 
 You'll be asked how to share:
@@ -64,10 +66,10 @@ The TUI shows connection URLs plus live token and tunnel status. Share the **Pub
 
 ```bash
 # First time — paste the connect URL from the sharer's TUI
-claude-connect --share <connect-url>
+code-connect --share <connect-url>
 
 # Subsequent runs — pick from saved connections
-claude-connect
+code-connect
 ```
 
 The receiver configures Claude Code to route through the proxy and installs the session CA cert automatically. Everything is cleaned up on exit.
@@ -80,10 +82,10 @@ The receiver machine does **not** need a Claude subscription or login: placehold
 
 ```bash
 # Sharer
-npx @0xpv/claude-share
+npx @themystic07/code-share
 
 # Receiver
-npx -p @0xpv/claude-share claude-connect --share <connect-url>
+npx -p @themystic07/code-share code-connect --share <connect-url>
 ```
 
 ---
@@ -112,8 +114,8 @@ npx -p @0xpv/claude-share claude-connect --share <connect-url>
 
 - **Requests hang / "stuck" mid-turn** — every hop now uses TCP keepalive and short request timeouts, so a dropped tunnel fails fast and Claude Code retries by itself. If it keeps happening in tunnel mode, switch the sharer to **Internet direct** (needs a reachable port) — bore.pub is a shared best-effort service.
 - **"The sharer's token expired — refreshing it now"** — transient; the sharer refreshes and Claude Code retries. If the TUI shows `token dead`, run `claude login` on the sharer machine.
-- **Models missing on the receiver** — make sure both sides run ≥ 1.4.0 and re-pair (`claude-connect --share <url>`); the receiver's placeholder credentials are updated to match the sharer's plan.
-- Logs: `~/.claude-share/logs/share.log` (sharer) and `connect.log` (receiver).
+- **Models missing on the receiver** — make sure both sides run ≥ 1.4.0 and re-pair (`code-connect --share <url>`); the receiver's placeholder credentials are updated to match the sharer's plan.
+- Logs: `~/.code-share/logs/share.log` (sharer) and `connect.log` (receiver).
 
 ---
 

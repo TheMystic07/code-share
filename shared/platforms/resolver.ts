@@ -19,7 +19,7 @@ export function platform(): PlatformOps {
   const p = process.platform as SupportedPlatform;
   if (!(p in SUPPORTED)) {
     process.stderr.write(
-      `Unsupported platform: "${process.platform}". claude-share supports macOS, Linux and Windows.\n`,
+      `Unsupported platform: "${process.platform}". code-share supports macOS, Linux and Windows.\n`,
     );
     process.exit(1);
   }

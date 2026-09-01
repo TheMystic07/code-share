@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const LOG_DIR = path.join(os.homedir(), ".claude-share", "logs");
+const LOG_DIR = path.join(os.homedir(), ".code-share", "logs");
 
 function write(logFile: string, level: "INFO" | "WARN" | "ERROR", message: string, extra?: unknown): void {
   try {

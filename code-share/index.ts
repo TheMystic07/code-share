@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import "@shared/patch-console";
+import "@shared/paths";
 import { execFile } from "node:child_process";
 import fs from "node:fs";
 import net from "node:net";
@@ -70,7 +71,7 @@ import { verifyTokenOrExit } from "./proxy/verifyToken";
 
 const IS_WIN = process.platform === "win32";
 
-const CLAUDE_SHARE_CONFIG = path.join(os.homedir(), ".claude-share", "config.json");
+const CLAUDE_SHARE_CONFIG = path.join(os.homedir(), ".code-share", "config.json");
 
 function readShareConfig(): Record<string, unknown> {
   try {
@@ -215,7 +216,7 @@ async function main() {
 
   await checkForUpdate();
 
-  p.intro(`claude-share v${pkg.version}`);
+  p.intro(`code-share v${pkg.version}`);
 
   if (!hasAgreedToTerms()) {
     p.log.warn(

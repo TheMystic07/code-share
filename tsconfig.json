@@ -11,5 +11,5 @@
       "@shared/*": ["./shared/*"],
     },
   },
-  "include": ["claude-share", "claude-connect", "shared", "scripts"],
+  "include": ["code-share", "code-connect", "shared", "scripts"],
 }

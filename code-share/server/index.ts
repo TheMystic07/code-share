@@ -55,8 +55,8 @@ export function createApiApp(
   app.get("/connect/:code", (c) => {
     const url = c.req.url;
     return c.text(
-      `This is a claude-share connect link — it cannot be opened in a browser.\n\n` +
-        `Run this instead:\n\n  claude-connect --share "${url}"\n`,
+      `This is a code-share connect link — it cannot be opened in a browser.\n\n` +
+        `Run this instead:\n\n  code-connect --share "${url}"\n`,
       200,
       { "Content-Type": "text/plain; charset=utf-8" },
     );

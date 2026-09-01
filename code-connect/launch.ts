@@ -75,7 +75,7 @@ export function ensureOnboarding() {
 function placeholderCredentials(sub: SharerSubscription | null): CredentialPayload {
   return {
     claudeAiOauth: {
-      accessToken: "claude-share-placeholder",
+      accessToken: "code-share-placeholder",
       refreshToken: "",
       expiresAt: 4102444800000, // 2100-01-01 — never triggers a refresh
       scopes: DEFAULT_SCOPES,
@@ -93,7 +93,7 @@ export async function ensureCredentials(sub: SharerSubscription | null) {
     try {
       const existing = await platform().readCredentialPayload();
       const cur = existing.claudeAiOauth;
-      const isPlaceholder = cur.accessToken === "claude-share-placeholder" || cur.accessToken === "1234";
+      const isPlaceholder = cur.accessToken === "code-share-placeholder" || cur.accessToken === "1234";
       if (!isPlaceholder) return;
       if (
         cur.subscriptionType !== desired.claudeAiOauth.subscriptionType ||
@@ -201,7 +201,7 @@ export async function launchClaude(
     p.log.info(`Account: ${sharerAccount.displayName} (${sharerAccount.emailAddress})`);
   }
 
-  const certDir = path.join(os.homedir(), ".claude-share", "tmp");
+  const certDir = path.join(os.homedir(), ".code-share", "tmp");
   fs.mkdirSync(certDir, { recursive: true });
   const tmpCert = path.join(certDir, `ca-${process.pid}-${Date.now()}.pem`);
   fs.writeFileSync(tmpCert, caPem, { mode: 0o600 });

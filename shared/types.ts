@@ -10,7 +10,7 @@ export interface SharerSubscription {
   rateLimitTier?: string;
 }
 
-// Wire format exchanged during pairing — produced by claude-share, consumed by claude-connect
+// Wire format exchanged during pairing — produced by code-share, consumed by code-connect
 export interface ConnectionFile {
   publicServerUrl: string | null;
   lanServerUrl: string | null;

@@ -19,7 +19,7 @@ const IS_WIN = process.platform === "win32";
 
 // Where we install bore when it isn't already in PATH
 const BORE_LOCAL_PATH = IS_WIN
-  ? path.join(os.homedir(), ".claude-share", "bin", "bore.exe")
+  ? path.join(os.homedir(), ".code-share", "bin", "bore.exe")
   : path.join(os.homedir(), ".local", "bin", "bore");
 
 export type TunnelState = "connected" | "reconnecting" | "down";
@@ -63,7 +63,7 @@ function httpsGet(url: string): Promise<import("http").IncomingMessage> {
     const attempt = (target: string, hops = 0) => {
       if (hops > 5) return reject(new Error("Too many redirects"));
       https
-        .get(target, { headers: { "User-Agent": "claude-share" } }, (res) => {
+        .get(target, { headers: { "User-Agent": "code-share" } }, (res) => {
           const st = res.statusCode ?? 0;
           if ((st === 301 || st === 302 || st === 307 || st === 308) && res.headers.location) {
             res.resume();

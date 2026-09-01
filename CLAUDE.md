@@ -1,15 +1,15 @@
-# claude-share
+# code-share
 
-Single npm package (`@0xpv/claude-share`) exposing two binaries: `claude-share` (sharer) and `claude-connect` (receiver). Source lives in `claude-share/` and `claude-connect/` (shared code in `shared/`); both compile into `dist/` via `bun run build`. Supported on macOS, Linux and Windows on both sides.
+Single npm package (`@themystic07/code-share`, a renamed fork of `@0xpv/claude-share`) exposing two binaries: `code-share` (sharer) and `code-connect` (receiver). State lives in `~/.code-share` (`shared/paths.ts` migrates `~/.claude-share` on first run); connect links use `codeshare://` but `claudeshare://` is still parsed. Source lives in `code-share/` and `code-connect/` (shared code in `shared/`); both compile into `dist/` via `bun run build`. Supported on macOS, Linux and Windows on both sides.
 
 ## Dev commands
 
 ```bash
-bun run dev:share                                # claude-share (TUNNEL=0 to skip bore, --direct / --public-host for direct mode)
-bun run dev:connect --share=<url>                # claude-connect
+bun run dev:share                                # code-share (TUNNEL=0 to skip bore, --direct / --public-host for direct mode)
+bun run dev:connect --share=<url>                # code-connect
 # or directly:
-bun claude-share/index.ts
-bun claude-connect/index.ts --share=<url>
+bun code-share/index.ts
+bun code-connect/index.ts --share=<url>
 ```
 
 Build: `bun run build` (compiles both via bun build). Lint: `bun run lint`.
@@ -45,8 +45,8 @@ Build: `bun run build` (compiles both via bun build). Lint: `bun run lint`.
 
 ## Receiver saved state
 
-`~/.claude-share/connections/<machineId>.json` — pruned on startup if `sharedUntil` is past.  
-`~/.claude-share/config.json` — device name.
+`~/.code-share/connections/<machineId>.json` — pruned on startup if `sharedUntil` is past.  
+`~/.code-share/config.json` — device name.
 
 ## Known quirks
 
@@ -54,4 +54,4 @@ Build: `bun run build` (compiles both via bun build). Lint: `bun run lint`.
 - `--share <url>` and `--share=<url>` are both supported in the receiver.
 - bore doesn't set `x-forwarded-for`, so all bore requests arrive as `ip = "unknown"`.
 - On Windows the receiver resets `cachedGrowthBookFeatures.tengu_windows_credman` to `false` before launch so Claude Code reads the placeholder file instead of Windows Credential Manager.
-- `lint` covers `claude-share claude-connect shared` (there is no `src/` dir).
+- `lint` covers `code-share code-connect shared` (there is no `src/` dir).

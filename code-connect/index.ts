@@ -21,7 +21,8 @@ import { pairFlow } from "./flows/pair";
 import { reconnectFlow } from "./flows/reconnect";
 import { listFlow } from "./flows/list";
 import { resolveActiveUrl } from "./health";
-import { launchClaude } from "./launch";
+import { launchTool } from "./launch";
+import { toolLabel } from "@shared/tool";
 import { logger } from "./logger";
 import { parseConnectUrl } from "./pairing";
 import {
@@ -68,7 +69,8 @@ args.forEach((a, i) => {
   }
 });
 
-const claudeArgs = args.filter((_, i) => !ownIdxs.has(i));
+// Everything code-connect does not recognise is passed to the launched CLI (claude / codex).
+const extraArgs = args.filter((_, i) => !ownIdxs.has(i));
 const launchOpts = { noUpdate: args.includes("--no-update") };
 const shareEqArg = args.find((a) => a.startsWith("--share="));
 const shareIdx = args.indexOf("--share");
@@ -80,12 +82,12 @@ pruneExpiredConnections();
 if (!hasAgreedToTerms()) {
   p.intro("code-connect");
   p.log.warn(
-    "Heads up: you're connecting to someone else's Claude Code at your own discretion.\n" +
-      "By design, the sharer's machine could potentially see your Claude Code messages\n" +
+    "Heads up: you're connecting to someone else's Claude Code / Codex at your own discretion.\n" +
+      "By design, the sharer's machine could potentially see your messages\n" +
       "if they're running a modified, unofficial build of this program. Please connect\n" +
       "only to people you trust.\n\n" +
       "Once connected, you might still see your own email or organization name shown\n" +
-      "in Claude Code. That's expected behavior and safe to ignore.",
+      "in the CLI. That's expected behavior and safe to ignore.",
   );
   const agreed = await p.confirm({
     message: "Do you understand and want to continue?",
@@ -103,13 +105,13 @@ if (!hasAgreedToTerms()) {
 if (args[0] === "--list" || args[0] === "-l") {
   await listFlow();
 } else if (args[0] === "--reconnect" || args[0] === "-r") {
-  await reconnectFlow(args[1], claudeArgs, launchOpts);
+  await reconnectFlow(args[1], extraArgs, launchOpts);
 } else if (shareArg) {
   const connectUrl = shareArg.slice("--share=".length).trim();
   const parsed = parseConnectUrl(connectUrl);
   if (!parsed) {
     p.log.error(
-      "Invalid --share URL. Expected: codeshare://host:port/connect/CODE",
+      "Invalid --share URL. Expected: codeshare://host:port/connect/CODE[?tool=codex]",
     );
     process.exit(1);
   }
@@ -121,12 +123,12 @@ if (args[0] === "--list" || args[0] === "-l") {
     if (resolved.alive && resolved.sessionId === existing.sessionId) {
       // Same session still running — skip pairing entirely
       p.intro("code-connect");
-      p.log.info(`Resuming existing connection for ${existing.systemName}`);
-      await launchClaude(
+      p.log.info(`Resuming existing connection for ${existing.systemName} (${toolLabel(existing.tool ?? "claude")})`);
+      await launchTool(
         resolved.url,
         existing.caPem,
         existing,
-        claudeArgs,
+        extraArgs,
         existing.sharerAccount ?? null,
         launchOpts,
       );
@@ -135,10 +137,10 @@ if (args[0] === "--list" || args[0] === "-l") {
       // a new CA, so the old caPem fails verification and health returns alive=false).
       // The user provided an explicit new URL, so always attempt fresh pairing — if the
       // sharer is truly offline, pairFlow will fail with a network error naturally.
-      await pairFlow(parsed, claudeArgs, launchOpts);
+      await pairFlow(parsed, extraArgs, launchOpts);
     }
   } else {
-    await pairFlow(parsed, claudeArgs, launchOpts);
+    await pairFlow(parsed, extraArgs, launchOpts);
   }
 } else {
   // No --share flag: check for active saved connections first
@@ -171,7 +173,7 @@ if (args[0] === "--list" || args[0] === "-l") {
           ...active.map((r) => ({
             value: r.conn.id,
             label: r.conn.systemName,
-            hint: r.url,
+            hint: `${toolLabel(r.conn.tool ?? "claude")} · ${r.url}`,
           })),
           {
             value: "__new__",
@@ -185,22 +187,22 @@ if (args[0] === "--list" || args[0] === "-l") {
         process.exit(0);
       }
       if (pick === "__new__") {
-        await pairFlow(undefined, claudeArgs, launchOpts);
+        await pairFlow(undefined, extraArgs, launchOpts);
       } else {
         const chosen = active.find((r) => r.conn.id === pick)!;
-        await launchClaude(
+        await launchTool(
           chosen.url,
           chosen.conn.caPem,
           chosen.conn,
-          claudeArgs,
+          extraArgs,
           chosen.conn.sharerAccount ?? null,
           launchOpts,
         );
       }
     } else {
-      await pairFlow(undefined, claudeArgs, launchOpts);
+      await pairFlow(undefined, extraArgs, launchOpts);
     }
   } else {
-    await pairFlow(undefined, claudeArgs, launchOpts);
+    await pairFlow(undefined, extraArgs, launchOpts);
   }
 }

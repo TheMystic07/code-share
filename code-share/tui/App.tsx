@@ -9,6 +9,7 @@ import {
   type Session,
 } from "../session/manager.js";
 import type { TokenStatus } from "../proxy/token.js";
+import { type ShareTool, toolLabel, toolLoginCommand } from "@shared/tool";
 import type { TunnelState } from "../tunnel/index.js";
 
 const IS_DEV = process.env.NODE_ENV === "development";
@@ -60,10 +61,11 @@ interface Props {
   tunnelAttempt: number;
   tunnelStartedAt: Date | null;
   tokenStatus: TokenStatus;
+  tool: ShareTool;
   onExit: () => void;
 }
 
-function tokenLine(t: TokenStatus): { text: string; color?: string } {
+function tokenLine(t: TokenStatus, tool: ShareTool): { text: string; color?: string } {
   switch (t.state) {
     case "ok": {
       if (!t.expiresAt) return { text: "token ok" };
@@ -75,7 +77,7 @@ function tokenLine(t: TokenStatus): { text: string; color?: string } {
     case "error":
       return { text: `token refresh failing (${t.failures}x) — retrying`, color: "yellow" };
     case "dead":
-      return { text: "token dead — run `claude login` on this machine", color: "red" };
+      return { text: `token dead — run \`${toolLoginCommand(tool)}\` on this machine`, color: "red" };
     default:
       return { text: "token …" };
   }
@@ -119,6 +121,7 @@ export function App({
   tunnelAttempt,
   tunnelStartedAt,
   tokenStatus,
+  tool,
   onExit,
 }: Props) {
   const { exit } = useApp();
@@ -152,10 +155,13 @@ export function App({
     setCursorIdx((i) => Math.min(i, Math.max(0, machines.length - 1)));
   }, [machines.length]);
 
+  // Claude links stay in the legacy shape so old receivers keep working; the
+  // tool is also carried (authoritatively) inside the encrypted pairing blob.
   const connectUrl = useCallback(
     (base: string) =>
-      `codeshare://${base.replace(/^https?:\/\//, "")}/connect/${pairingCode}`,
-    [pairingCode],
+      `codeshare://${base.replace(/^https?:\/\//, "")}/connect/${pairingCode}` +
+      (tool === "claude" ? "" : `?tool=${tool}`),
+    [pairingCode, tool],
   );
 
   useInput((input, key) => {
@@ -212,8 +218,9 @@ export function App({
         </Text>
         <Text dimColor>{formatExpiry(sharedUntil)} remaining</Text>
         <Text dimColor>:{localPort}</Text>
-        <Text color={tokenLine(tokenStatus).color} dimColor={!tokenLine(tokenStatus).color}>
-          {tokenLine(tokenStatus).text}
+        <Text color="magenta">{toolLabel(tool)}</Text>
+        <Text color={tokenLine(tokenStatus, tool).color} dimColor={!tokenLine(tokenStatus, tool).color}>
+          {tokenLine(tokenStatus, tool).text}
         </Text>
         {tunnelState === "reconnecting" && (
           <Text color="yellow">

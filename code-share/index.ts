@@ -17,6 +17,7 @@ import { render } from "ink";
 import React from "react";
 
 import { platform } from "@shared/platforms";
+import { parseShareTool, type ShareTool } from "@shared/tool";
 import { checkForUpdate, forceUpgrade } from "@shared/checkVersion";
 import { logger } from "./logger";
 import pkg from "../package.json";
@@ -41,10 +42,12 @@ platform();
 
 import { createPortDetector } from "./port/detector";
 import { createMitmProxy, tuneSocket } from "./proxy/mitm";
+import { policyFor } from "./proxy/policy";
 import {
-  getRateLimitTier,
-  getSubscriptionType,
+  getCodexSharerAccount,
+  getSharerSubscription,
   getTokenStatus,
+  setActiveTool,
   stopTokenRefresh,
   subscribeTokenStatus,
   type TokenStatus,
@@ -94,7 +97,7 @@ function hasAgreedToTerms(): boolean {
   return readShareConfig()["hasShareTermsAgreed"] === true;
 }
 
-function readSharerAccount(): SharerAccount | null {
+function readClaudeSharerAccount(): SharerAccount | null {
   try {
     const raw = fs.readFileSync(path.join(os.homedir(), ".claude.json"), "utf8");
     const config = JSON.parse(raw) as Record<string, unknown>;
@@ -249,6 +252,38 @@ async function main() {
     patchShareConfig({ hasShareTermsAgreed: true });
   }
 
+  // ── Tool ─────────────────────────────────────────────────────────────────────
+  // One tool per session. The receiver learns the tool from the connect link /
+  // pairing blob and installs + launches the matching CLI by itself.
+  const toolFlag =
+    parseShareTool(flagValue(argv, "--tool")) ??
+    (argv.includes("--codex") || argv.includes("--chatgpt")
+      ? "codex"
+      : argv.includes("--claude")
+        ? "claude"
+        : null);
+  let tool: ShareTool;
+  if (toolFlag) {
+    tool = toolFlag;
+  } else {
+    const lastTool = parseShareTool(readShareConfig()["lastShareTool"]);
+    const choice = await p.select({
+      message: "What do you want to share?",
+      options: [
+        { value: "claude" as const, label: "Claude Code", hint: "Anthropic subscription (claude)" },
+        { value: "codex" as const, label: "ChatGPT (Codex)", hint: "ChatGPT subscription via OpenAI Codex CLI" },
+      ],
+      initialValue: lastTool ?? "claude",
+    });
+    if (p.isCancel(choice)) {
+      p.cancel("Cancelled.");
+      process.exit(0);
+    }
+    tool = choice;
+    patchShareConfig({ lastShareTool: tool });
+  }
+  setActiveTool(tool);
+
   // ── Share mode ───────────────────────────────────────────────────────────────
   const envTunnel = process.env.TUNNEL !== "0" && process.env.TUNNEL !== "false";
   const publicHostFlag = flagValue(argv, "--public-host") ?? process.env.PUBLIC_HOST ?? null;
@@ -357,23 +392,31 @@ async function main() {
   };
 
   // MITM proxy resolves only after its RSA CA is ready (no race on CONNECT)
-  const mitmProxy = await createMitmProxy(certHosts, (auth) => {
-    const session = getSession();
-    return session ? checkMachineAuth(session, auth) : false;
-  });
+  const mitmProxy = await createMitmProxy(
+    certHosts,
+    (auth) => {
+      const session = getSession();
+      return session ? checkMachineAuth(session, auth) : false;
+    },
+    policyFor(tool),
+  );
   logger.info("MITM proxy ready");
 
   // Mutable — publicUrl is filled in after the tunnel starts / from direct host
   const urls = { public: null as string | null, lan: lanIp ? `https://${lanIp}:${PORT}` : null };
   let loopbackUrl = `http://localhost:${PORT}`;
-  const sharerAccount = readSharerAccount();
+  const sharerAccount = tool === "codex" ? getCodexSharerAccount() : readClaudeSharerAccount();
   const systemName = await platform().getSystemName();
 
   // Hono API on a random localhost-only port — not exposed externally
-  const apiApp = createApiApp(urls, mitmProxy.caCertPem, sharerAccount, systemName, () => ({
-    subscriptionType: getSubscriptionType(),
-    rateLimitTier: getRateLimitTier(),
-  }));
+  const apiApp = createApiApp(
+    urls,
+    mitmProxy.caCertPem,
+    sharerAccount,
+    systemName,
+    () => getSharerSubscription(),
+    tool,
+  );
   const API_PORT = await freePort();
   const honoServer = serve({
     fetch: apiApp.fetch,
@@ -552,6 +595,7 @@ async function main() {
       tunnelAttempt,
       tunnelStartedAt,
       tokenStatus,
+      tool,
       onExit: () => {
         cleanup();
         process.exit(0);

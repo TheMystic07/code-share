@@ -10,86 +10,16 @@ import { Proxy } from "http-mitm-proxy";
 
 import { generateServerCert, type ServerCert } from "../ca/serverCert";
 import { logger } from "../logger";
+import type { ToolPolicy } from "./policy";
 import { logRequest, setResponseStatus } from "./requestLog";
-import { canRefresh, getAccessToken, onUpstreamUnauthorized } from "./token";
+import { canRefresh, getAuthHeaders, onUpstreamUnauthorized } from "./token";
 
 // Per-request log id stored on ctx so onResponse can update it
 const CTX_LOG_ID = Symbol("logId");
 
-// Domains the proxy intercepts and forwards to Anthropic with injected token
-const INTERCEPT_DOMAINS = new Set([
-  "api.anthropic.com",
-  "platform.anthropic.com",
-  "platform.claude.com",
-  "mcp-proxy.anthropic.com",
-]);
-
 // Domains allowed to pass through without interception or token injection
+// (plain-HTTP proxy requests only; CONNECT to non-intercepted hosts is piped raw).
 const PASSTHROUGH_DOMAINS = new Set(["raw.githubusercontent.com"]);
-
-// api.anthropic.com allowed paths.
-// Everything Claude Code needs to behave exactly like a logged-in client:
-//   - inference + token counting
-//   - model discovery / entitlements (bootstrap, models)
-//   - account + usage display (profile, usage, roles, validate)
-//   - feature gates (GrowthBook remote eval — what enables new models/modes)
-//   - org-managed settings and policy limits
-const API_ALLOWED_PATHS: Array<{ method: string | null; prefix: string }> = [
-  { method: null, prefix: "/api/hello" },
-  { method: "POST", prefix: "/v1/messages" }, // includes /v1/messages/count_tokens
-  { method: "GET", prefix: "/v1/models" },
-  { method: "GET", prefix: "/api/claude_cli/bootstrap" },
-  { method: "GET", prefix: "/api/claude_cli_profile" },
-  { method: "GET", prefix: "/api/oauth/profile" },
-  { method: "GET", prefix: "/api/oauth/usage" },
-  { method: "GET", prefix: "/api/oauth/validate" },
-  { method: "GET", prefix: "/api/oauth/claude_cli/roles" },
-  { method: "POST", prefix: "/api/eval/" },
-  { method: "POST", prefix: "/api/eval-authed/" },
-  { method: "GET", prefix: "/api/features/" },
-  { method: "GET", prefix: "/api/claude_code/settings" },
-  { method: "GET", prefix: "/api/claude_code/policy_limits" },
-  { method: "GET", prefix: "/api/claude_code/organizations/metrics_enabled" },
-  { method: "GET", prefix: "/api/claude_code/notification/preferences" },
-];
-
-// api.anthropic.com paths that are always blocked regardless of method.
-// These could create long-lived artefacts or credentials on the sharer's account.
-const API_BLOCKED_PREFIXES = [
-  "/v1/files",
-  "/v1/fine_tuning",
-  "/v1/assistants",
-  "/v1/messages/batches",
-  "/api/oauth/claude_cli/create_api_key",
-  "/api/oauth/file_upload",
-  "/api/oauth/files",
-  "/api/oauth/account",
-  "/api/oauth/organizations",
-];
-
-function isApiAllowed(method: string, reqPath: string): boolean {
-  const cleanPath = reqPath.split("?")[0] ?? reqPath;
-  for (const blocked of API_BLOCKED_PREFIXES) {
-    if (cleanPath.startsWith(blocked)) return false;
-  }
-  for (const allowed of API_ALLOWED_PATHS) {
-    if (cleanPath.startsWith(allowed.prefix)) {
-      if (allowed.method === null || allowed.method === method.toUpperCase())
-        return true;
-    }
-  }
-  return false;
-}
-
-// platform.anthropic.com allowed paths
-function isPlatformAnthropicAllowed(reqPath: string): boolean {
-  return reqPath.startsWith("/api/auth/");
-}
-
-// platform.claude.com allowed paths
-function isPlatformClaudeAllowed(reqPath: string): boolean {
-  return reqPath.startsWith("/v1/oauth/");
-}
 
 // ── Connection tuning ────────────────────────────────────────────────────────
 // Long Opus turns can sit idle (from the client's point of view) for minutes.
@@ -132,11 +62,14 @@ export interface MitmProxy {
  * Resolves only after the RSA CA is ready so CONNECT handling never races.
  *
  * `certHosts` — every hostname / IP receivers may use to reach this machine.
+ * `policy`    — which hosts to intercept and which requests to forward (per tool).
  */
 export async function createMitmProxy(
   certHosts: { hostnames: string[]; ips: string[] },
-  checkAuth: (authHeader: string) => boolean = () => false,
+  checkAuth: (authHeader: string) => boolean,
+  policy: ToolPolicy,
 ): Promise<MitmProxy> {
+  const INTERCEPT_DOMAINS = policy.interceptDomains;
   const sslCaDir = await fs.promises.mkdtemp(
     path.join(os.tmpdir(), "code-share-mitm-"),
   );
@@ -202,12 +135,7 @@ export async function createMitmProxy(
         const res = ctx?.proxyToClientResponse;
         if (res && !res.headersSent) {
           res.writeHead(502, { "Content-Type": "application/json", "Retry-After": "2" });
-          res.end(
-            JSON.stringify({
-              type: "error",
-              error: { type: "api_error", message: `[code-share] upstream error: ${err.message ?? err}` },
-            }),
-          );
+          res.end(JSON.stringify(policy.upstreamErrorBody(String(err.message ?? err))));
         } else if (res && !res.writableEnded) {
           res.end();
         }
@@ -221,6 +149,14 @@ export async function createMitmProxy(
       ctx.proxyToClientResponse.end("Not allowed by code-share policy");
     }
 
+    // Replace whatever (placeholder) credentials the receiver sent with the
+    // sharer's token. Never let the receiver's own headers leak upstream.
+    function injectAuth(headers: Record<string, unknown>) {
+      for (const h of policy.stripRequestHeaders) delete headers[h];
+      delete headers["authorization"];
+      for (const [k, v] of Object.entries(getAuthHeaders())) headers[k] = v;
+    }
+
     proxy.onRequest((ctx: any, callback: () => void) => {
       const host = ctx.clientToProxyRequest.headers.host ?? "";
       const hostname = host.split(":")[0];
@@ -231,24 +167,14 @@ export async function createMitmProxy(
         return callback();
       }
 
-      if (!INTERCEPT_DOMAINS.has(hostname)) return deny(ctx, method, hostname, reqPath);
-      if (hostname === "api.anthropic.com" && !isApiAllowed(method, reqPath))
-        return deny(ctx, method, hostname, reqPath);
-      if (hostname === "platform.anthropic.com" && !isPlatformAnthropicAllowed(reqPath))
-        return deny(ctx, method, hostname, reqPath);
-      if (hostname === "platform.claude.com" && !isPlatformClaudeAllowed(reqPath))
+      if (!INTERCEPT_DOMAINS.has(hostname) || !policy.isAllowed(hostname, method, reqPath))
         return deny(ctx, method, hostname, reqPath);
 
       ctx[CTX_LOG_ID] = logRequest(method, hostname, reqPath, "allowed");
 
       const headers = (ctx.proxyToServerRequestOptions.headers =
         ctx.proxyToServerRequestOptions.headers ?? {});
-      headers["authorization"] = `Bearer ${getAccessToken()}`;
-      // Never let the receiver's own (placeholder) credentials leak upstream.
-      delete headers["x-api-key"];
-      delete headers["x-forwarded-for"];
-      delete headers["x-real-ip"];
-      delete headers["via"];
+      injectAuth(headers);
 
       ctx.proxyToServerRequestOptions.agent = ctx.isSSL ? httpsAgent : httpAgent;
 
@@ -270,33 +196,13 @@ export async function createMitmProxy(
         logger.info(`[req] ${req?.method ?? "?"} ${host}${pathOnly} → ${status} (${ua})`);
       }
 
-      // Anthropic rejected the injected token. Start a refresh immediately and,
+      // Upstream rejected the injected token. Start a refresh immediately and,
       // if a refresh is possible, tell the receiver to retry (503 + Retry-After)
-      // instead of showing it a login prompt. Claude Code retries 5xx on its own.
-      if (status === 401 && host === "api.anthropic.com") {
+      // instead of showing it a login prompt. Both CLIs retry 5xx on their own.
+      if (status === 401 && policy.authHosts.has(host)) {
         const retryable = canRefresh();
         onUpstreamUnauthorized();
-        const body = Buffer.from(
-          JSON.stringify(
-            retryable
-              ? {
-                  type: "error",
-                  error: {
-                    type: "overloaded_error",
-                    message:
-                      "[code-share] The sharer's token expired — refreshing it now, please retry.",
-                  },
-                }
-              : {
-                  type: "error",
-                  error: {
-                    type: "authentication_error",
-                    message:
-                      "[code-share] The sharer's Anthropic token is invalid and could not be refreshed. The sharer must run 'claude login'.",
-                  },
-                },
-          ),
-        );
+        const body = Buffer.from(JSON.stringify(policy.unauthorizedBody(retryable)));
         if (retryable) {
           ctx.serverToProxyResponse.statusCode = 503;
           ctx.serverToProxyResponse.statusMessage = "Service Unavailable";
@@ -325,13 +231,56 @@ export async function createMitmProxy(
       // Strip any response headers that could leak the sharer's credentials
       const respHeaders = ctx.serverToProxyResponse.headers;
       if (respHeaders) {
-        delete respHeaders["authorization"];
-        delete respHeaders["set-cookie"];
-        delete respHeaders["x-api-key"];
-        delete respHeaders["anthropic-organization-id"];
+        for (const h of policy.stripResponseHeaders) delete respHeaders[h];
       }
 
       callback();
+    });
+
+    // Websocket upgrades inside an intercepted host (Codex streams Responses
+    // over wss://chatgpt.com/backend-api/codex/responses). Same allow-list,
+    // same header injection; the library pipes frames untouched afterwards.
+    proxy.onWebSocketConnection((ctx: any, callback: (err?: Error) => void) => {
+      const opts = ctx.proxyToServerWebSocketOptions;
+      let target: URL;
+      try {
+        target = new URL(opts.url);
+      } catch {
+        ctx.clientToProxyWebSocket.close(1008, "Bad websocket target");
+        return;
+      }
+      const hostname = target.hostname;
+      const reqPath = target.pathname + target.search;
+      if (!INTERCEPT_DOMAINS.has(hostname) || !policy.isAllowed(hostname, "GET", reqPath)) {
+        logRequest("WS", hostname, reqPath, "blocked");
+        logger.info(`[req] WS ${hostname}${reqPath.split("?")[0].slice(0, 100)} → blocked`);
+        ctx.clientToProxyWebSocket.close(1008, "Not allowed by code-share policy");
+        return;
+      }
+      const logId = logRequest("WS", hostname, reqPath, "allowed");
+      opts.headers = opts.headers ?? {};
+      injectAuth(opts.headers);
+      opts.agent = httpsAgent;
+      callback();
+
+      const upstream = ctx.proxyToServerWebSocket;
+      if (!upstream) return;
+      upstream.on("open", () => {
+        setResponseStatus(logId, 101);
+        logger.info(`[req] WS ${hostname}${reqPath.split("?")[0].slice(0, 100)} → 101`);
+      });
+      // A non-101 answer (e.g. 401) — surface it like an HTTP 401 would be.
+      upstream.on("unexpected-response", (req: http.ClientRequest, res: http.IncomingMessage) => {
+        const status = res.statusCode ?? 0;
+        setResponseStatus(logId, status);
+        logger.info(`[req] WS ${hostname}${reqPath.split("?")[0].slice(0, 100)} → ${status}`);
+        if (status === 401 && policy.authHosts.has(hostname)) onUpstreamUnauthorized();
+        res.resume();
+        req.destroy(new Error(`Unexpected server response: ${status}`));
+        try {
+          ctx.clientToProxyWebSocket.close(1011, `[code-share] upstream ${status}`);
+        } catch {}
+      });
     });
 
     proxy.onConnect(

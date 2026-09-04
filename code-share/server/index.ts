@@ -13,6 +13,7 @@ import {
   type ConnectionFile,
   type SharerAccount,
 } from "../session/manager";
+import { type ShareTool, toolLabel } from "@shared/tool";
 import type { SharerSubscription } from "@shared/types";
 
 interface Urls {
@@ -26,6 +27,7 @@ export function createApiApp(
   sharerAccount: SharerAccount | null,
   systemName: string,
   getSubscription: () => SharerSubscription | null = () => null,
+  tool: ShareTool = "claude",
 ): Hono {
   const app = new Hono();
 
@@ -55,7 +57,7 @@ export function createApiApp(
   app.get("/connect/:code", (c) => {
     const url = c.req.url;
     return c.text(
-      `This is a code-share connect link — it cannot be opened in a browser.\n\n` +
+      `This is a code-share connect link for ${toolLabel(tool)} — it cannot be opened in a browser.\n\n` +
         `Run this instead:\n\n  code-connect --share "${url}"\n`,
       200,
       { "Content-Type": "text/plain; charset=utf-8" },
@@ -80,6 +82,7 @@ export function createApiApp(
     const machine = addMachine(session, name);
 
     const file: ConnectionFile = {
+      tool,
       publicServerUrl: urls.public,
       lanServerUrl: urls.lan,
       sessionId: session.id,

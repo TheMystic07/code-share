@@ -3,7 +3,7 @@ import fs from "node:fs";
 import * as p from "@clack/prompts";
 
 import { apiFetch } from "../fetch";
-import { launchClaude } from "../launch";
+import { launchTool } from "../launch";
 import { logger } from "../logger";
 import { decryptBlob, parseConnectUrl } from "../pairing";
 import {
@@ -11,11 +11,12 @@ import {
   ensureConnectionsDir,
   getDeviceName,
 } from "../storage";
+import { type ShareTool, toolLabel } from "@shared/tool";
 import type { ConnectionFile, SavedConnection } from "../types";
 
 export async function pairFlow(
-  prefill?: { serverUrl: string; pairingCode: string },
-  claudeArgs: string[] = [],
+  prefill?: { serverUrl: string; pairingCode: string; tool?: ShareTool | null },
+  extraArgs: string[] = [],
   launchOpts: { noUpdate?: boolean } = {},
 ) {
   p.intro("code-connect — pair with a new sharer");
@@ -26,7 +27,7 @@ export async function pairFlow(
   if (prefill) {
     serverUrl = prefill.serverUrl;
     pairingCode = prefill.pairingCode;
-    p.log.info(`Connecting to ${serverUrl}`);
+    p.log.info(`Connecting to ${serverUrl}${prefill.tool ? ` (${toolLabel(prefill.tool)})` : ""}`);
   } else {
     const input = await p.text({
       message: "Connect link or sharer URL:",
@@ -116,11 +117,14 @@ export async function pairFlow(
     process.exit(1);
   }
 
-  spin.stop("Paired successfully.");
+  // The blob decides which CLI to run; the URL's ?tool= is only a hint.
+  const tool: ShareTool = file.tool ?? "claude";
+  spin.stop(`Paired successfully — sharer is sharing ${toolLabel(tool)}.`);
 
   ensureConnectionsDir();
   const saved: SavedConnection = {
     id: connectionId,
+    tool,
     systemName: file.systemName ?? new URL(serverUrl).hostname,
     lanServerUrl: file.lanServerUrl,
     publicServerUrl: file.publicServerUrl,
@@ -138,11 +142,11 @@ export async function pairFlow(
     JSON.stringify(saved, null, 2),
   );
 
-  await launchClaude(
+  await launchTool(
     serverUrl,
     file.caPem,
     saved,
-    claudeArgs,
+    extraArgs,
     file.sharerAccount ?? null,
     launchOpts,
   );

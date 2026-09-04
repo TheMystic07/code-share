@@ -9,8 +9,11 @@ import * as p from "@clack/prompts";
 import { platform } from "@shared/platforms";
 import type { CredentialPayload } from "@shared/platforms";
 import { DEFAULT_SCOPES } from "@shared/oauth";
+import { type ShareTool, toolBinary, toolLabel } from "@shared/tool";
+import { codexEnv, codexInstallHint, ensureCodexCredentials, ensureCodexUpToDate, findCodex } from "./codex";
 import { apiFetch } from "./fetch";
 import { logger } from "./logger";
+import { run } from "./proc";
 import type { SharerAccount, SharerSubscription } from "./types";
 
 const execFileAsync = promisify(execFile);
@@ -147,21 +150,6 @@ export async function checkClaudeInstalled(): Promise<boolean> {
   return (await findClaude()) !== null;
 }
 
-function run(cmd: string, args: string[], opts: { timeout: number; shell?: boolean }): Promise<number> {
-  return new Promise((resolve) => {
-    const child = spawn(cmd, args, { stdio: "inherit", shell: opts.shell ?? false, windowsHide: true });
-    const timer = setTimeout(() => child.kill(), opts.timeout);
-    child.on("exit", (code) => {
-      clearTimeout(timer);
-      resolve(code ?? 1);
-    });
-    child.on("error", () => {
-      clearTimeout(timer);
-      resolve(1);
-    });
-  });
-}
-
 async function claudeVersion(bin: string): Promise<string | null> {
   try {
     const { stdout } = await execFileAsync(bin, ["--version"], {
@@ -241,23 +229,37 @@ export async function sessionPost(
 
 // ── Launch ────────────────────────────────────────────────────────────────────
 
-export async function launchClaude(
-  proxyUrl: string,
-  caPem: string,
-  meta: {
-    systemName: string;
-    id: string;
-    proxyUser: string;
-    proxyPass: string;
-    sharerSubscription?: SharerSubscription | null;
-  },
-  claudeArgs: string[] = [],
-  sharerAccount: SharerAccount | null = null,
-  opts: { noUpdate?: boolean } = {},
-) {
+interface LaunchMeta {
+  systemName: string;
+  id: string;
+  proxyUser: string;
+  proxyPass: string;
+  tool?: ShareTool;
+  sharerSubscription?: SharerSubscription | null;
+}
+
+/** Prepares the CLI for `tool`: install/update, onboarding, placeholder login. Returns the binary. */
+async function prepareTool(
+  tool: ShareTool,
+  meta: LaunchMeta,
+  sharerAccount: SharerAccount | null,
+  opts: { noUpdate?: boolean },
+): Promise<string> {
+  if (tool === "codex") {
+    await ensureCodexUpToDate(opts.noUpdate ?? false);
+    const bin = await findCodex();
+    if (!bin) {
+      p.log.error("Codex CLI is not installed or not in PATH.");
+      p.log.info(codexInstallHint());
+      process.exit(1);
+    }
+    await ensureCodexCredentials(meta.sharerSubscription ?? null, sharerAccount);
+    return bin;
+  }
+
   await ensureClaudeUpToDate(opts.noUpdate ?? false);
-  const claudeBin = await findClaude();
-  if (!claudeBin) {
+  const bin = await findClaude();
+  if (!bin) {
     p.log.error("Claude Code is not installed or not in PATH.");
     p.log.info(
       IS_WIN
@@ -266,12 +268,47 @@ export async function launchClaude(
     );
     process.exit(1);
   }
-
   ensureOnboarding();
   await ensureCredentials(meta.sharerSubscription ?? null);
+  return bin;
+}
+
+function claudeEnv(httpProxyUrl: string, tmpCert: string): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    HTTPS_PROXY: httpProxyUrl,
+    HTTP_PROXY: httpProxyUrl,
+    NODE_EXTRA_CA_CERTS: tmpCert,
+    SSL_CERT_FILE: tmpCert,
+    CURL_CA_BUNDLE: tmpCert,
+  };
+  // Any stale auth env would take precedence over the placeholder login and
+  // bypass the proxy's model discovery — make sure it's clear.
+  delete env.ANTHROPIC_API_KEY;
+  delete env.ANTHROPIC_AUTH_TOKEN;
+  delete env.CLAUDE_CODE_OAUTH_TOKEN;
+  return env;
+}
+
+/**
+ * Launches the CLI the sharer is sharing (`meta.tool`, default Claude Code)
+ * through the sharer's proxy. Extra args are passed to the CLI untouched.
+ */
+export async function launchTool(
+  proxyUrl: string,
+  caPem: string,
+  meta: LaunchMeta,
+  extraArgs: string[] = [],
+  sharerAccount: SharerAccount | null = null,
+  opts: { noUpdate?: boolean } = {},
+) {
+  const tool: ShareTool = meta.tool ?? "claude";
+  const label = toolLabel(tool);
+  const bin = await prepareTool(tool, meta, sharerAccount, opts);
 
   if (sharerAccount) {
-    p.log.info(`Account: ${sharerAccount.displayName} (${sharerAccount.emailAddress})`);
+    const who = [sharerAccount.displayName, sharerAccount.emailAddress].filter(Boolean).join(" ");
+    p.log.info(`Account: ${who || "unknown"}${sharerAccount.organizationName ? ` · ${sharerAccount.organizationName}` : ""}`);
   }
 
   const certDir = path.join(os.homedir(), ".code-share", "tmp");
@@ -282,7 +319,7 @@ export async function launchClaude(
   const proxyAuth =
     "Basic " + Buffer.from(`${meta.proxyUser}:${meta.proxyPass}`).toString("base64");
 
-  // Register this Claude session with the sharer
+  // Register this session with the sharer
   let sessionId: string | null = null;
   try {
     const res = await sessionPost(proxyUrl, "/session/start", { machineId: meta.id }, caPem, proxyAuth);
@@ -305,7 +342,7 @@ export async function launchClaude(
       }, 30_000)
     : null;
 
-  p.log.success("\x1b[32mLaunching Claude...\x1b[0m");
+  p.log.success(`\x1b[32mLaunching ${label}...\x1b[0m`);
   p.outro("");
 
   const startTime = Date.now();
@@ -318,22 +355,10 @@ export async function launchClaude(
   parsedProxy.password = encodeURIComponent(meta.proxyPass);
   const httpProxyUrl = parsedProxy.toString();
 
-  const env: NodeJS.ProcessEnv = {
-    ...process.env,
-    HTTPS_PROXY: httpProxyUrl,
-    HTTP_PROXY: httpProxyUrl,
-    NODE_EXTRA_CA_CERTS: tmpCert,
-    SSL_CERT_FILE: tmpCert,
-    CURL_CA_BUNDLE: tmpCert,
-  };
-  // Any stale auth env would take precedence over the placeholder login and
-  // bypass the proxy's model discovery — make sure it's clear.
-  delete env.ANTHROPIC_API_KEY;
-  delete env.ANTHROPIC_AUTH_TOKEN;
-  delete env.CLAUDE_CODE_OAUTH_TOKEN;
+  const env = tool === "codex" ? codexEnv(httpProxyUrl, tmpCert) : claudeEnv(httpProxyUrl, tmpCert);
 
-  const useShell = IS_WIN && /\.(cmd|bat)$/i.test(claudeBin);
-  const child = spawn(useShell ? `"${claudeBin}"` : claudeBin, claudeArgs, {
+  const useShell = IS_WIN && /\.(cmd|bat)$/i.test(bin);
+  const child = spawn(useShell ? `"${bin}"` : bin, extraArgs, {
     stdio: "inherit",
     env,
     shell: useShell,
@@ -365,9 +390,13 @@ export async function launchClaude(
   });
 
   child.on("error", (err) => {
-    logger.error("Failed to launch claude process", err);
-    p.log.error(`Failed to launch claude: ${err.message}`);
-    p.log.warn("Is 'claude' installed? See https://docs.claude.com/en/docs/claude-code/setup");
+    logger.error(`Failed to launch ${toolBinary(tool)} process`, err);
+    p.log.error(`Failed to launch ${toolBinary(tool)}: ${err.message}`);
+    p.log.warn(
+      tool === "codex"
+        ? `Is 'codex' installed? ${codexInstallHint()}`
+        : "Is 'claude' installed? See https://docs.claude.com/en/docs/claude-code/setup",
+    );
     void cleanupAndExit(1);
   });
 

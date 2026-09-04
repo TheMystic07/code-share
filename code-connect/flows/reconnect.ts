@@ -1,13 +1,14 @@
 import * as p from "@clack/prompts";
 
 import { resolveActiveUrl } from "../health";
-import { launchClaude } from "../launch";
+import { launchTool } from "../launch";
+import { toolLabel } from "@shared/tool";
 import { loadConnections } from "../storage";
 import type { SavedConnection } from "../types";
 
 export async function reconnectFlow(
   uuid?: string,
-  claudeArgs: string[] = [],
+  extraArgs: string[] = [],
   launchOpts: { noUpdate?: boolean } = {},
 ) {
   const connections = loadConnections();
@@ -33,7 +34,7 @@ export async function reconnectFlow(
       options: connections.map((c) => ({
         value: c.id,
         label: `${c.systemName} — ${c.lanServerUrl ?? c.publicServerUrl ?? ""}`,
-        hint: `saved ${new Date(c.savedAt).toLocaleDateString()}`,
+        hint: `${toolLabel(c.tool ?? "claude")} · saved ${new Date(c.savedAt).toLocaleDateString()}`,
       })),
     });
     if (p.isCancel(pick)) {
@@ -52,11 +53,11 @@ export async function reconnectFlow(
   }
   spin.stop("Server is alive.");
 
-  await launchClaude(
+  await launchTool(
     resolved.url,
     chosen.caPem,
     chosen,
-    claudeArgs,
+    extraArgs,
     chosen.sharerAccount ?? null,
     launchOpts,
   );

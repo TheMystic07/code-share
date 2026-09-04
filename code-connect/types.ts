@@ -1,9 +1,12 @@
+import type { ShareTool } from "@shared/tool";
 import type { SharerAccount, SharerSubscription } from "@shared/types";
 
 export type { ConnectionFile, SharerAccount, SharerSubscription } from "@shared/types";
 
 export interface SavedConnection {
   id: string;
+  /** CLI this share is for. Missing = "claude" (connections saved by older versions). */
+  tool?: ShareTool;
   systemName: string;
   lanServerUrl: string | null;
   publicServerUrl: string | null;

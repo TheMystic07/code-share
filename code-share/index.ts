@@ -331,6 +331,7 @@ async function main() {
   }
 
   let boreReady = false;
+  let tunnelError: string | null = null;
   if (shareMode === "internet") {
     if (await isBoreInstalled()) {
       boreReady = true;
@@ -339,6 +340,7 @@ async function main() {
         await installBore();
         boreReady = true;
       } catch (err) {
+        tunnelError = `bore install failed: ${(err as Error).message}`;
         p.log.warn(`Could not install bore (${(err as Error).message}) — sharing on LAN only.`);
       }
     }
@@ -559,6 +561,7 @@ async function main() {
       logger.info(`Tunnel active: ${urls.public}`);
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
+      tunnelError = reason;
       spin.stop(`Could not start tunnel (${reason}) — sharing on LAN only.`);
       if (isTunnelAuthError(err)) {
         p.log.warn(
@@ -603,6 +606,7 @@ async function main() {
       tunnelState,
       tunnelAttempt,
       tunnelStartedAt,
+      tunnelError,
       tokenStatus,
       tool,
       onExit: () => {

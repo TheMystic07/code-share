@@ -278,7 +278,7 @@ export async function startTunnel(
         if (!settled) {
           settled = true;
           child.kill();
-          reject(new Error("bore timed out"));
+          reject(new Error(lastError ? `bore timed out: ${lastError}` : "bore timed out after 30s (is port 7835 to the tunnel server reachable?)"));
         }
       }, 30_000);
 
@@ -290,7 +290,7 @@ export async function startTunnel(
           clearTimeout(timeout);
           resolve(parseInt(match[1], 10));
         }
-        if (/error|failed|denied/i.test(text)) {
+        if (/error|failed|denied|refused|timed out|unreachable/i.test(text)) {
           logger.warn(`[bore] ${text.trim()}`);
           // Keep the human-readable part (bore prints "Error: <reason>").
           lastError = text.replace(/\u001b\[[0-9;]*m/g, "").trim().split("\n").pop() ?? text.trim();

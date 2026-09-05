@@ -60,6 +60,8 @@ interface Props {
   tunnelState: TunnelState | null;
   tunnelAttempt: number;
   tunnelStartedAt: Date | null;
+  /** Why the tunnel could not be started (shown instead of the public link). */
+  tunnelError?: string | null;
   tokenStatus: TokenStatus;
   tool: ShareTool;
   onExit: () => void;
@@ -120,6 +122,7 @@ export function App({
   tunnelState,
   tunnelAttempt,
   tunnelStartedAt,
+  tunnelError,
   tokenStatus,
   tool,
   onExit,
@@ -252,7 +255,13 @@ export function App({
             ) : (
               <Box>
                 <Box minWidth={10}><Text dimColor>Public</Text></Box>
-                <Text dimColor>not available — local network only</Text>
+                <Text dimColor>
+                  not available — local network only
+                  {tunnelError ? ` (tunnel failed: ${tunnelError})` : ""}
+                </Text>
+                {tunnelError && (
+                  <Text dimColor>See ~/.code-share/logs/share.log · fix and restart code-share</Text>
+                )}
               </Box>
             )}
             {lanUrl && (

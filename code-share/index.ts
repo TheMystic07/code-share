@@ -65,6 +65,7 @@ import { App } from "./tui/App";
 import {
   boreServer,
   isBoreInstalled,
+  isTunnelAuthError,
   installBore,
   startTunnel,
   type Tunnel,
@@ -557,7 +558,15 @@ async function main() {
       spin.stop(urls.public ? `Tunnel active: ${urls.public}` : "Tunnel started but returned no port");
       logger.info(`Tunnel active: ${urls.public}`);
     } catch (err) {
-      spin.stop("Could not start tunnel — sharing on LAN only.");
+      const reason = err instanceof Error ? err.message : String(err);
+      spin.stop(`Could not start tunnel (${reason}) — sharing on LAN only.`);
+      if (isTunnelAuthError(err)) {
+        p.log.warn(
+          `${boreServer()} requires a client secret and this build has none.\n` +
+            "Set BORE_PASSWORD in the environment or add \"boreSecret\" to ~/.code-share/config.json\n" +
+            "(ask whoever runs the tunnel server for it), then restart code-share.",
+        );
+      }
       logger.warn("Could not start bore tunnel", err);
     }
   }

@@ -241,6 +241,12 @@ export async function installBore(): Promise<void> {
  * hiccup, network blip) we reconnect and ask for the *same* remote port so the
  * public URL the receiver saved keeps working.
  */
+/** True when bore rejected us because the server wants a secret we don't have. */
+export function isTunnelAuthError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /requires authentication|invalid secret|incorrect secret|no client secret/i.test(msg);
+}
+
 export async function startTunnel(
   localPort: number,
   events: TunnelEvents = {},
@@ -267,6 +273,7 @@ export async function startTunnel(
       proc = child;
 
       let settled = false;
+      let lastError = "";
       const timeout = setTimeout(() => {
         if (!settled) {
           settled = true;
@@ -283,7 +290,11 @@ export async function startTunnel(
           clearTimeout(timeout);
           resolve(parseInt(match[1], 10));
         }
-        if (/error|failed|denied/i.test(text)) logger.warn(`[bore] ${text.trim()}`);
+        if (/error|failed|denied/i.test(text)) {
+          logger.warn(`[bore] ${text.trim()}`);
+          // Keep the human-readable part (bore prints "Error: <reason>").
+          lastError = text.replace(/\u001b\[[0-9;]*m/g, "").trim().split("\n").pop() ?? text.trim();
+        }
       }
 
       child.stdout?.on("data", onData);
@@ -301,7 +312,7 @@ export async function startTunnel(
         if (!settled) {
           settled = true;
           clearTimeout(timeout);
-          reject(new Error(`bore exited with code ${code}`));
+          reject(new Error(lastError || `bore exited with code ${code}`));
         } else if (!closing && proc === child) {
           logger.warn(`[bore] tunnel process exited (code ${code}) — reconnecting`);
           scheduleReconnect();

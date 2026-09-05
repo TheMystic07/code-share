@@ -60,23 +60,61 @@ export function boreServer(): string {
   return BORE_SERVER;
 }
 
-// Returns the bore binary path (from PATH or the known local install location),
-// or null if bore is not found.
+/**
+ * Runs `bore --version` to make sure the binary actually executes here. A file
+ * that exists but cannot run (wrong architecture, corrupt download, blocked by
+ * antivirus) surfaces as `spawn UNKNOWN` / `EACCES` / `EBADARCH` on spawn.
+ */
+async function probeBore(bin: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const { stdout } = await execFileAsync(bin, ["--version"], { timeout: 15_000, windowsHide: true });
+    return /bore/i.test(stdout) ? { ok: true } : { ok: false, error: `unexpected output: ${stdout.trim().slice(0, 80)}` };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+}
+
+// Returns the path of a bore binary that runs on this machine (PATH first, then
+// the local install location), or null. A local binary that fails to run is
+// deleted so the next install can replace it.
 async function getBorePath(): Promise<string | null> {
   try {
     const { stdout } = await execFileAsync(IS_WIN ? "where" : "which", ["bore"]);
-    const first = stdout.split(/\r?\n/).map((s) => s.trim()).find(Boolean);
-    if (first) return first;
+    for (const cand of stdout.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)) {
+      const probe = await probeBore(cand);
+      if (probe.ok) return cand;
+      logger.warn(`[bore] ${cand} does not run here (${probe.error}) — ignoring`);
+    }
   } catch {}
   try {
     await fs.promises.access(BORE_LOCAL_PATH, fs.constants.X_OK);
-    return BORE_LOCAL_PATH;
+    const probe = await probeBore(BORE_LOCAL_PATH);
+    if (probe.ok) return BORE_LOCAL_PATH;
+    logger.warn(`[bore] ${BORE_LOCAL_PATH} does not run here (${probe.error}) — removing so it gets re-downloaded`);
+    await fs.promises.rm(BORE_LOCAL_PATH, { force: true });
   } catch {}
   return null;
 }
 
 export async function isBoreInstalled(): Promise<boolean> {
   return (await getBorePath()) !== null;
+}
+
+/** Human hint for a bore binary the OS refuses to execute. */
+function cannotRunHint(bin: string): string {
+  if (IS_WIN) {
+    return (
+      `Windows refused to run ${bin} (antivirus/SmartScreen block or wrong CPU build). ` +
+      `Allow it in Windows Security, or download bore.exe from https://github.com/ekzhang/bore/releases and save it as ${BORE_LOCAL_PATH}, then restart code-share.`
+    );
+  }
+  if (process.platform === "darwin") {
+    return (
+      `macOS refused to run ${bin} (Gatekeeper or wrong CPU build). ` +
+      `Run "xattr -d com.apple.quarantine ${bin}" or "brew install bore-cli", then restart code-share.`
+    );
+  }
+  return `${bin} cannot be executed here — install bore yourself (cargo install bore-cli) and put it on PATH.`;
 }
 
 // Follow redirects and return the final response.
@@ -130,43 +168,48 @@ async function downloadToFile(url: string, dest: string): Promise<void> {
   });
 }
 
-// (platform, arch) → bore release target triple + archive extension
-function releaseTarget(): { triple: string; ext: "tar.gz" | "zip" } | null {
+type ReleaseTarget = { triple: string; ext: "tar.gz" | "zip" };
+
+// (platform, arch) → bore release targets to try, in order. Each downloaded
+// binary is probed; if it does not run, the next one is tried.
+function releaseTargets(): ReleaseTarget[] {
   const arch = process.arch;
   switch (process.platform) {
     case "linux": {
-      const m: Record<string, string> = {
-        x64: "x86_64-unknown-linux-musl",
-        arm64: "aarch64-unknown-linux-musl",
-        arm: "armv7-unknown-linux-musleabihf",
-        ia32: "i686-unknown-linux-musl",
+      const m: Record<string, string[]> = {
+        x64: ["x86_64-unknown-linux-musl"],
+        arm64: ["aarch64-unknown-linux-musl"],
+        arm: ["armv7-unknown-linux-musleabihf"],
+        ia32: ["i686-unknown-linux-musl"],
       };
-      return m[arch] ? { triple: m[arch], ext: "tar.gz" } : null;
+      return (m[arch] ?? []).map((triple) => ({ triple, ext: "tar.gz" }));
     }
     case "darwin": {
-      const m: Record<string, string> = {
-        x64: "x86_64-apple-darwin",
-        arm64: "aarch64-apple-darwin",
+      // Node under Rosetta reports x64 on Apple Silicon; either build runs there.
+      const m: Record<string, string[]> = {
+        x64: ["x86_64-apple-darwin", "aarch64-apple-darwin"],
+        arm64: ["aarch64-apple-darwin", "x86_64-apple-darwin"],
       };
-      return m[arch] ? { triple: m[arch], ext: "tar.gz" } : null;
+      return (m[arch] ?? []).map((triple) => ({ triple, ext: "tar.gz" }));
     }
     case "win32": {
-      const m: Record<string, string> = {
-        x64: "x86_64-pc-windows-msvc",
-        ia32: "i686-pc-windows-msvc",
-        // No native arm64 build — the x64 binary runs under emulation.
-        arm64: "x86_64-pc-windows-msvc",
+      // No native arm64 build. The 32-bit build runs everywhere (x64 and, via
+      // emulation, Windows on ARM incl. Windows 10 which has no x64 emulation).
+      const m: Record<string, string[]> = {
+        x64: ["x86_64-pc-windows-msvc", "i686-pc-windows-msvc"],
+        arm64: ["x86_64-pc-windows-msvc", "i686-pc-windows-msvc"],
+        ia32: ["i686-pc-windows-msvc"],
       };
-      return m[arch] ? { triple: m[arch], ext: "zip" } : null;
+      return (m[arch] ?? []).map((triple) => ({ triple, ext: "zip" }));
     }
     default:
-      return null;
+      return [];
   }
 }
 
 async function installBoreFromGithub(): Promise<void> {
-  const target = releaseTarget();
-  if (!target) {
+  const targets = releaseTargets();
+  if (targets.length === 0) {
     throw new Error(
       `No pre-built bore binary for ${process.platform}/${process.arch}. ` +
         "Install bore manually: https://github.com/ekzhang/bore",
@@ -177,6 +220,20 @@ async function installBoreFromGithub(): Promise<void> {
     "https://api.github.com/repos/ekzhang/bore/releases/latest",
   )) as { tag_name: string };
   const tag = release.tag_name; // e.g. "v0.6.0"
+
+  let lastErr = "";
+  for (const target of targets) {
+    await downloadRelease(tag, target);
+    const probe = await probeBore(BORE_LOCAL_PATH);
+    if (probe.ok) return;
+    lastErr = probe.error ?? "unknown";
+    logger.warn(`[bore] ${target.triple} build does not run here (${lastErr})`);
+    await fs.promises.rm(BORE_LOCAL_PATH, { force: true });
+  }
+  throw new Error(`downloaded bore but it cannot run here (${lastErr}). ${cannotRunHint(BORE_LOCAL_PATH)}`);
+}
+
+async function downloadRelease(tag: string, target: ReleaseTarget): Promise<void> {
   const filename = `bore-${tag}-${target.triple}.${target.ext}`;
   const downloadUrl = `https://github.com/ekzhang/bore/releases/download/${tag}/${filename}`;
 
@@ -304,7 +361,13 @@ export async function startTunnel(
         if (!settled) {
           settled = true;
           clearTimeout(timeout);
-          reject(err);
+          const code = (err as NodeJS.ErrnoException).code;
+          logger.error(`[bore] cannot start ${boreBin} (${code ?? err.message}) on ${process.platform}/${process.arch}`);
+          reject(
+            code === "ENOENT"
+              ? new Error(`bore not found (${boreBin})`)
+              : new Error(`cannot run bore: ${err.message}. ${cannotRunHint(boreBin)}`),
+          );
         }
       });
 

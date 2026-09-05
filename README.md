@@ -26,7 +26,7 @@ claude / codex (CLI)                code-share  (Claude Code  or  ChatGPT/Codex)
 - The sharer picks **one** tool per session. Its OAuth token is read from the tool's own credential store — Claude Code: macOS Keychain or `~/.claude/.credentials.json`; Codex: `~/.codex/auth.json` (or the macOS keychain entry Codex uses) — and injected per-request inside the MITM proxy. It is never sent to the receiver.
 - The sharer refreshes the OAuth token itself before it expires (and on any upstream 401), writing the rotated token back to the same store the CLI uses — no more "run `claude` on the server to fix the token".
 - The receiver installs a temporary CA cert (valid only for the session) so the MITM can intercept the vendor's API traffic. Every other domain passes through as an opaque TCP tunnel — never inspected.
-- Pairing uses a one-time code. The encrypted pairing blob tells the receiver which tool the sharer is sharing; Codex links also carry `?tool=codex` so it is visible at a glance. Once paired, credentials are saved so reconnecting skips the pairing step.
+- Pairing uses a one-time code. The encrypted pairing blob tells the receiver which tool the sharer is sharing, so the link looks the same for both tools. Once paired, credentials are saved so reconnecting skips the pairing step.
 
 ---
 
@@ -72,6 +72,8 @@ code-connect --share <connect-url>
 # Subsequent runs — pick from saved connections
 code-connect
 ```
+
+The connect link **is** the pairing code — there is no separate code to type. On the sharer press `c` to copy it, and paste the whole link into `code-connect` (a link that got wrapped across lines when copied is accepted too).
 
 The receiver needs no flags to pick a tool: the link/pairing blob says whether the sharer is sharing Claude Code or Codex, and the receiver configures that CLI to route through the proxy and installs the session CA cert automatically. Everything is cleaned up on exit. Any extra arguments are passed to the launched CLI.
 

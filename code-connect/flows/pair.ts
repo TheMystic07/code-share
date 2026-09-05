@@ -5,7 +5,7 @@ import * as p from "@clack/prompts";
 import { apiFetch } from "../fetch";
 import { launchTool } from "../launch";
 import { logger } from "../logger";
-import { decryptBlob, parseConnectUrl } from "../pairing";
+import { decryptBlob, extractConnectUrl, looksLikeConnectUrl, type ParsedConnectUrl } from "../pairing";
 import {
   connectionPath,
   ensureConnectionsDir,
@@ -13,6 +13,53 @@ import {
 } from "../storage";
 import { type ShareTool, toolLabel } from "@shared/tool";
 import type { ConnectionFile, SavedConnection } from "../types";
+
+/**
+ * Asks for the connect link shown in the sharer's terminal. Tolerates links
+ * that were wrapped across lines when copied: a multi-line paste arrives as
+ * several submits, so fragments are accumulated until the link is complete.
+ */
+export async function promptConnectUrl(initial = ""): Promise<ParsedConnectUrl> {
+  let acc = initial.replace(/\s+/g, "");
+  for (;;) {
+    const found = acc ? extractConnectUrl(acc) : null;
+    if (found?.complete) return found.parsed;
+
+    const partial = acc.length > 0 && looksLikeConnectUrl(acc);
+    const input = await p.text({
+      message: partial
+        ? "The link looks cut off — paste the rest of it:"
+        : "Paste the connect link from the sharer's terminal (they can press c to copy it):",
+      placeholder: partial ? "" : "codeshare://host:2569/connect/CODE",
+    });
+    if (p.isCancel(input)) {
+      p.cancel("Cancelled.");
+      process.exit(0);
+    }
+    const chunk = String(input ?? "").replace(/\s+/g, "");
+    if (!chunk) continue;
+
+    if (partial) {
+      acc += chunk;
+    } else if (looksLikeConnectUrl(chunk)) {
+      acc = chunk;
+    } else {
+      p.log.warn(
+        "That doesn't look like a connect link. It starts with codeshare:// and is shown\n" +
+          "under \"Public\" or \"LAN\" in the sharer's code-share window — copy the whole line.",
+      );
+      acc = "";
+      continue;
+    }
+
+    const now = extractConnectUrl(acc);
+    if (now && !now.complete) {
+      // Fall through: next iteration asks for the rest.
+      continue;
+    }
+    if (!now && !looksLikeConnectUrl(acc)) acc = "";
+  }
+}
 
 export async function pairFlow(
   prefill?: { serverUrl: string; pairingCode: string; tool?: ShareTool | null },
@@ -29,37 +76,10 @@ export async function pairFlow(
     pairingCode = prefill.pairingCode;
     p.log.info(`Connecting to ${serverUrl}${prefill.tool ? ` (${toolLabel(prefill.tool)})` : ""}`);
   } else {
-    const input = await p.text({
-      message: "Connect link or sharer URL:",
-      placeholder: "codeshare://192.168.x.x:2569/connect/CODE",
-      validate: (v) =>
-        v?.startsWith("codeshare://") ||
-        v?.startsWith("claudeshare://") ||
-        v?.startsWith("https://")
-          ? undefined
-          : "Must be a codeshare:// URL",
-    });
-    if (p.isCancel(input)) {
-      p.cancel("Cancelled.");
-      process.exit(0);
-    }
-
-    const parsed = parseConnectUrl((input as string).trim());
-    if (parsed) {
-      serverUrl = parsed.serverUrl;
-      pairingCode = parsed.pairingCode;
-    } else {
-      serverUrl = (input as string).trim();
-      const codeInput = await p.text({
-        message: "Pairing code (from their terminal):",
-        validate: (v) => ((v?.trim().length ?? 0) > 0 ? undefined : "Required"),
-      });
-      if (p.isCancel(codeInput)) {
-        p.cancel("Cancelled.");
-        process.exit(0);
-      }
-      pairingCode = (codeInput as string).trim();
-    }
+    const parsed = await promptConnectUrl();
+    serverUrl = parsed.serverUrl;
+    pairingCode = parsed.pairingCode;
+    if (parsed.tool) p.log.info(`Sharer is sharing ${toolLabel(parsed.tool)}`);
   }
 
   const name = getDeviceName();

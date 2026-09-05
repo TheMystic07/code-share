@@ -155,13 +155,11 @@ export function App({
     setCursorIdx((i) => Math.min(i, Math.max(0, machines.length - 1)));
   }, [machines.length]);
 
-  // Claude links stay in the legacy shape so old receivers keep working; the
-  // tool is also carried (authoritatively) inside the encrypted pairing blob.
+  // The tool is carried inside the encrypted pairing blob, so the link stays
+  // in the legacy shape for every tool (short, and no `?` for zsh to glob).
   const connectUrl = useCallback(
-    (base: string) =>
-      `codeshare://${base.replace(/^https?:\/\//, "")}/connect/${pairingCode}` +
-      (tool === "claude" ? "" : `?tool=${tool}`),
-    [pairingCode, tool],
+    (base: string) => `codeshare://${base.replace(/^https?:\/\//, "")}/connect/${pairingCode}`,
+    [pairingCode],
   );
 
   useInput((input, key) => {
@@ -247,8 +245,8 @@ export function App({
           </Text>
           <Box flexDirection="column" marginTop={1} gap={0}>
             {publicUrl ? (
-              <Box>
-                <Box minWidth={10}><Text dimColor>Public</Text></Box>
+              <Box flexDirection="column">
+                <Text dimColor>Public</Text>
                 <Text>{connectUrl(publicUrl)}</Text>
               </Box>
             ) : (
@@ -258,23 +256,23 @@ export function App({
               </Box>
             )}
             {lanUrl && (
-              <Box>
-                <Box minWidth={10}><Text dimColor>LAN</Text></Box>
+              <Box flexDirection="column" marginTop={publicUrl ? 1 : 0}>
+                <Text dimColor>LAN</Text>
                 <Text bold>{connectUrl(lanUrl)}</Text>
               </Box>
             )}
             {IS_DEV && (
-              <Box>
-                <Box minWidth={10}><Text dimColor>Local</Text></Box>
+              <Box flexDirection="column" marginTop={1}>
+                <Text dimColor>Local</Text>
                 <Text dimColor>{connectUrl(loopbackUrl)}</Text>
               </Box>
             )}
           </Box>
           <Box flexDirection="column" marginTop={1} gap={0}>
-            <Text dimColor>One-time code — only one machine can use it.</Text>
+            <Text dimColor>One-time link — only one machine can use it. Press <Text color="white">c</Text> to copy it.</Text>
             <Text dimColor>
               Ask your friend to run <Text color="white">code-connect</Text>{" "}
-              and paste the link above.
+              and paste the whole link (the link is the pairing code — there is no separate code).
             </Text>
           </Box>
         </Box>

@@ -21,6 +21,13 @@ export function fromBase58(str: string): Uint8Array {
     if (idx === -1) throw new Error(`Invalid base58 character: ${char}`);
     num = num * 58n + BigInt(idx);
   }
-  const hex = num.toString(16).padStart(20, "0"); // at least 10 bytes
-  return Uint8Array.from(Buffer.from(hex, "hex"));
+  // Leading "1"s encode leading zero bytes, which the bigint above drops.
+  let leadingZeros = 0;
+  for (const char of str) {
+    if (char !== ALPHABET[0]) break;
+    leadingZeros++;
+  }
+  let hex = num === 0n ? "" : num.toString(16);
+  if (hex.length % 2) hex = `0${hex}`;
+  return Uint8Array.from(Buffer.concat([Buffer.alloc(leadingZeros), Buffer.from(hex, "hex")]));
 }

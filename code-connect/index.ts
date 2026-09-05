@@ -17,14 +17,14 @@ if (process.argv.includes("--upgrade")) {
   process.exit(0);
 }
 
-import { pairFlow } from "./flows/pair";
+import { pairFlow, promptConnectUrl } from "./flows/pair";
 import { reconnectFlow } from "./flows/reconnect";
 import { listFlow } from "./flows/list";
 import { resolveActiveUrl } from "./health";
 import { launchTool } from "./launch";
 import { toolLabel } from "@shared/tool";
 import { logger } from "./logger";
-import { parseConnectUrl } from "./pairing";
+import { extractConnectUrl } from "./pairing";
 import {
   findConnectionByServerUrl,
   hasAgreedToTerms,
@@ -108,12 +108,16 @@ if (args[0] === "--list" || args[0] === "-l") {
   await reconnectFlow(args[1], extraArgs, launchOpts);
 } else if (shareArg) {
   const connectUrl = shareArg.slice("--share=".length).trim();
-  const parsed = parseConnectUrl(connectUrl);
+  const found = extractConnectUrl(connectUrl);
+  let parsed = found?.complete ? found.parsed : null;
   if (!parsed) {
-    p.log.error(
-      "Invalid --share URL. Expected: codeshare://host:port/connect/CODE[?tool=codex]",
+    p.intro("code-connect");
+    p.log.warn(
+      found
+        ? "That connect link is incomplete (probably cut off when copied)."
+        : "That doesn't look like a connect link (expected codeshare://host:port/connect/CODE).",
     );
-    process.exit(1);
+    parsed = await promptConnectUrl(found ? connectUrl : "");
   }
 
   // Check if we already have credentials for this sharer

@@ -38,3 +38,36 @@ export function parseConnectUrl(url: string): ParsedConnectUrl | null {
   const query = new URLSearchParams(match[3] ?? "");
   return { serverUrl: match[1], pairingCode: match[2], tool: parseShareTool(query.get("tool")) };
 }
+
+/** True when the pairing code decodes to a full 32-byte session key. */
+export function isCompletePairingCode(code: string): boolean {
+  try {
+    return fromBase58(code).length >= 32;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Finds a connect link inside arbitrary pasted text. Links copied from the
+ * sharer's terminal are often wrapped onto several lines or surrounded by
+ * other text, so all whitespace is removed and the link is searched for
+ * anywhere in the input. Returns the parsed link plus whether the pairing
+ * code is complete (a wrapped copy is frequently cut mid-code).
+ */
+export function extractConnectUrl(
+  text: string,
+): { parsed: ParsedConnectUrl; complete: boolean } | null {
+  const compact = text.replace(/\s+/g, "").replace(/[.,;)\]'"`]+$/, "");
+  const start = compact.search(/(codeshare|claudeshare|https):\/\//);
+  if (start === -1) return null;
+  const candidate = compact.slice(start);
+  const parsed = parseConnectUrl(candidate);
+  if (!parsed) return null;
+  return { parsed, complete: isCompletePairingCode(parsed.pairingCode) };
+}
+
+/** Does the text look like the beginning of a connect link (scheme present)? */
+export function looksLikeConnectUrl(text: string): boolean {
+  return /(codeshare|claudeshare|https):\/\//.test(text.replace(/\s+/g, ""));
+}

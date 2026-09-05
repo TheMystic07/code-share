@@ -1,4 +1,7 @@
 import { execFile } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { promisify } from "node:util";
 
 import * as p from "@clack/prompts";
@@ -12,7 +15,7 @@ import {
   writeCodexAuth,
 } from "@shared/codex/store";
 import { logger } from "./logger";
-import { run } from "./proc";
+import { pickExecutable, run } from "./proc";
 import type { SharerAccount, SharerSubscription } from "./types";
 
 const execFileAsync = promisify(execFile);
@@ -25,11 +28,16 @@ export async function findCodex(): Promise<string | null> {
   const which = IS_WIN ? "where" : "which";
   try {
     const { stdout } = await execFileAsync(which, ["codex"]);
-    const candidates = stdout.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
-    if (candidates.length === 0) return null;
-    if (!IS_WIN) return candidates[0]!;
-    return candidates.find((c) => /\.exe$/i.test(c)) ?? candidates[0]!;
+    const picked = pickExecutable(stdout.split(/\r?\n/));
+    if (picked) return picked;
   } catch {}
+  if (IS_WIN) {
+    // npm's global bin dir may not be on PATH in the current shell.
+    const appData = process.env.APPDATA ?? path.join(os.homedir(), "AppData", "Roaming");
+    for (const cand of [path.join(appData, "npm", "codex.cmd"), path.join(appData, "npm", "codex.exe")]) {
+      if (fs.existsSync(cand)) return cand;
+    }
+  }
   return null;
 }
 

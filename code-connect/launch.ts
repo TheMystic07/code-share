@@ -13,7 +13,7 @@ import { type ShareTool, toolBinary, toolLabel } from "@shared/tool";
 import { codexEnv, codexInstallHint, ensureCodexCredentials, ensureCodexUpToDate, findCodex } from "./codex";
 import { apiFetch } from "./fetch";
 import { logger } from "./logger";
-import { run } from "./proc";
+import { pickExecutable, run } from "./proc";
 import type { SharerAccount, SharerSubscription } from "./types";
 
 const execFileAsync = promisify(execFile);
@@ -133,11 +133,10 @@ export async function findClaude(): Promise<string | null> {
   const which = IS_WIN ? "where" : "which";
   try {
     const { stdout } = await execFileAsync(which, ["claude"]);
-    const candidates = stdout.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
-    if (candidates.length === 0) return null;
-    if (!IS_WIN) return candidates[0]!;
-    // Prefer a real executable over the npm .cmd shim (cleaner signal handling).
-    return candidates.find((c) => /\.exe$/i.test(c)) ?? candidates[0]!;
+    // Prefer a real executable over the npm .cmd shim (cleaner signal handling);
+    // never the extensionless POSIX shim, which Windows cannot spawn.
+    const picked = pickExecutable(stdout.split(/\r?\n/));
+    if (picked) return picked;
   } catch {}
   if (IS_WIN) {
     const local = path.join(os.homedir(), ".local", "bin", "claude.exe");

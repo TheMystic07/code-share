@@ -1,6 +1,6 @@
 {
   "name": "@gurshabad90/code-share",
-  "version": "1.5.3",
+  "version": "1.5.4",
   "description": "Share your Claude Code subscription with your other machines — sharer (code-share) and receiver (code-connect)",
   "type": "module",
   "license": "MIT",

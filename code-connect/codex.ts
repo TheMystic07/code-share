@@ -9,6 +9,7 @@ import * as p from "@clack/prompts";
 import {
   CODEX_PLACEHOLDER,
   type CodexAuthFile,
+  codexCredentialStoreMode,
   codexIdentity,
   readCodexAuth,
   unsignedJwt,
@@ -128,6 +129,12 @@ function placeholderAuth(sub: SharerSubscription | null, account: SharerAccount 
   const now = new Date();
   const exp = 4102444800; // 2100-01-01 — never triggers a refresh
   const email = account?.emailAddress || "code-share@localhost";
+  // Codex resolves the selected workspace during TUI bootstrap by calling
+  // GET /backend-api/wham/accounts/check and matching the returned account ids
+  // against the id in its *local* auth.json. Mirroring the sharer's id here
+  // makes that work for receivers with no login; the proxy rewrites the response
+  // for receivers signed into a different account.
+  const accountId = account?.accountId || CODEX_PLACEHOLDER;
   return {
     auth_mode: "chatgpt",
     OPENAI_API_KEY: null,
@@ -137,14 +144,17 @@ function placeholderAuth(sub: SharerSubscription | null, account: SharerAccount 
         "https://api.openai.com/profile": { email },
         "https://api.openai.com/auth": {
           chatgpt_plan_type: sub?.subscriptionType || "plus",
-          chatgpt_account_id: CODEX_PLACEHOLDER,
+          chatgpt_account_id: accountId,
           chatgpt_user_id: "code-share",
         },
         exp,
       }),
-      access_token: unsignedJwt({ exp, "https://api.openai.com/auth": { chatgpt_account_id: CODEX_PLACEHOLDER } }),
+      access_token: unsignedJwt({
+        exp,
+        "https://api.openai.com/auth": { chatgpt_account_id: accountId },
+      }),
       refresh_token: CODEX_PLACEHOLDER,
-      account_id: CODEX_PLACEHOLDER,
+      account_id: accountId,
     },
     // Codex forces a refresh when this is older than 8 days — rewritten on every launch.
     last_refresh: now.toISOString(),
@@ -155,6 +165,27 @@ export async function ensureCodexCredentials(
   sub: SharerSubscription | null,
   account: SharerAccount | null,
 ): Promise<void> {
+  // Codex only reads auth.json when credentials are file-backed. "ephemeral"
+  // never persists, and a non-macOS keyring can't be written by code-share, so
+  // in both cases the shared login would be invisible to Codex.
+  const storeMode = await codexCredentialStoreMode();
+  if (storeMode === "ephemeral") {
+    p.log.warn(
+      'Codex is configured with cli_auth_credentials_store = "ephemeral" and will ignore auth.json, so the shared login cannot be used. Set it to "file" in ~/.codex/config.toml.',
+    );
+    return;
+  }
+  if (storeMode === "keyring" && process.platform !== "darwin") {
+    p.log.warn(
+      'Codex is configured with cli_auth_credentials_store = "keyring", which code-share cannot write on this platform. Set it to "file" in ~/.codex/config.toml.',
+    );
+    return;
+  }
+  // "auto" prefers the OS keychain when available, which on macOS means the
+  // placeholder must go there too; elsewhere (or on failure) auth.json is used.
+  const preferKeychain =
+    process.platform === "darwin" && (storeMode === "keyring" || storeMode === "auto");
+
   const desired = placeholderAuth(sub, account);
 
   let existing = null;
@@ -167,15 +198,24 @@ export async function ensureCodexCredentials(
   if (existing) {
     const isPlaceholder = existing.auth.tokens?.refresh_token === CODEX_PLACEHOLDER;
     if (!isPlaceholder) {
-      // A real ChatGPT login stays untouched; the proxy swaps the token anyway.
+      // A real login stays untouched; the proxy swaps the token anyway.
       if (existing.auth.auth_mode === "apikey" || (!existing.auth.tokens && existing.auth.OPENAI_API_KEY)) {
         p.log.warn(
           "Codex on this machine is signed in with an API key. Run 'codex logout' and re-run code-connect so the shared ChatGPT login is used.",
         );
+        return;
       }
+      if (existing.auth.auth_mode && existing.auth.auth_mode !== "chatgpt") {
+        p.log.warn(
+          `Codex is signed in with auth_mode "${existing.auth.auth_mode}". Run 'codex logout' and re-run code-connect so the shared ChatGPT login is used.`,
+        );
+        return;
+      }
+      // A different real ChatGPT account is fine: the proxy keeps the receiver's
+      // local account id working while sending the sharer's token upstream.
       return;
     }
-    // Keep our placeholder fresh (plan type, email, last_refresh).
+    // Keep our placeholder fresh (plan type, email, account id, last_refresh).
     await writeCodexAuth({ auth: { ...existing.auth, ...desired }, store: existing.store });
     logger.info("Refreshed placeholder Codex credentials", {
       plan: codexIdentity(desired.tokens).planType,
@@ -193,8 +233,21 @@ export async function ensureCodexCredentials(
     return;
   }
 
-  await writeCodexAuth({ auth: desired, store: "file" });
+  await writePlaceholder(desired, preferKeychain);
   p.log.success("Placeholder Codex credentials created.");
+}
+
+/** Writes the fresh placeholder to the keychain when preferred, else auth.json. */
+async function writePlaceholder(auth: CodexAuthFile, preferKeychain: boolean): Promise<void> {
+  if (preferKeychain) {
+    try {
+      await writeCodexAuth({ auth, store: "keychain" });
+      return;
+    } catch (err) {
+      logger.warn("Keychain write failed; falling back to auth.json", err);
+    }
+  }
+  await writeCodexAuth({ auth, store: "file" });
 }
 
 // ── Environment ──────────────────────────────────────────────────────────────

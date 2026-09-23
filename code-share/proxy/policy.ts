@@ -175,6 +175,8 @@ const CODEX_POLICY: ToolPolicy = {
     "cookie",
     "openai-organization",
     "openai-project",
+    // Always replace with the sharer's — never let the receiver's id upstream.
+    "chatgpt-account-id",
   ],
   stripResponseHeaders: ["authorization", "set-cookie", "x-api-key"],
   isAllowed(hostname, method, reqPath) {

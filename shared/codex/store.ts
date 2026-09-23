@@ -173,6 +173,25 @@ async function writeKeychain(auth: CodexAuthFile): Promise<void> {
 
 export type CodexStoreKind = "file" | "keychain";
 
+/** `cli_auth_credentials_store` values Codex accepts (default "file"). */
+export type CodexCredentialStoreMode = "file" | "keyring" | "auto" | "ephemeral";
+
+/**
+ * Reads `cli_auth_credentials_store` from `$CODEX_HOME/config.toml` without a
+ * full TOML parser (the key is always a bare top-level assignment). Defaults to
+ * "file" — Codex's own default.
+ */
+export async function codexCredentialStoreMode(): Promise<CodexCredentialStoreMode> {
+  try {
+    const raw = await fs.promises.readFile(path.join(codexHome(), "config.toml"), "utf8");
+    const m = raw.match(
+      /^\s*cli_auth_credentials_store\s*=\s*["']?(file|keyring|auto|ephemeral)["']?/m,
+    );
+    if (m) return m[1] as CodexCredentialStoreMode;
+  } catch {}
+  return "file";
+}
+
 export interface CodexAuthRecord {
   auth: CodexAuthFile;
   /** Where it came from — writes go back to the same place. */

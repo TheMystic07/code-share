@@ -4,6 +4,13 @@ export interface SharerAccount {
   emailAddress: string;
   displayName: string;
   organizationName: string;
+  /**
+   * Codex only: the sharer's ChatGPT account/workspace id. The receiver's
+   * placeholder auth.json carries it so its identity mirrors the sharer's; the
+   * proxy also rewrites Codex's workspace-routing response so a receiver signed
+   * into a *different* account still works.
+   */
+  accountId?: string;
 }
 
 /**

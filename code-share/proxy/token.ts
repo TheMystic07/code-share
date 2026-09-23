@@ -168,5 +168,12 @@ export function getCodexSharerAccount(): SharerAccount | null {
   if (!creds) return null;
   const id = codexIdentity(creds.tokens);
   if (!id.email) return null;
-  return { emailAddress: id.email, displayName: "", organizationName: id.planType ?? "" };
+  return {
+    emailAddress: id.email,
+    displayName: "",
+    organizationName: id.planType ?? "",
+    // Needed so the receiver's placeholder auth.json matches the account id the
+    // backend reports during Codex's workspace routing discovery.
+    accountId: id.accountId ?? undefined,
+  };
 }

@@ -5,6 +5,7 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { Transform } from "node:stream";
+import zlib from "node:zlib";
 
 import { Proxy } from "http-mitm-proxy";
 
@@ -16,6 +17,11 @@ import { canRefresh, getAuthHeaders, onUpstreamUnauthorized } from "./token";
 
 // Per-request log id stored on ctx so onResponse can update it
 const CTX_LOG_ID = Symbol("logId");
+
+// The account id the *receiver's* Codex selected locally, captured before the
+// proxy replaces it with the sharer's. Used to keep workspace routing working
+// when the two accounts differ.
+const CTX_LOCAL_ACCOUNT_ID = Symbol("localAccountId");
 
 // Domains allowed to pass through without interception or token injection
 // (plain-HTTP proxy requests only; CONNECT to non-intercepted hosts is piped raw).
@@ -45,6 +51,96 @@ function tuneServer(server: http.Server | https.Server): void {
   server.requestTimeout = 180_000;
   server.on("connection", tuneSocket);
   (server as https.Server).on?.("secureConnection", tuneSocket);
+}
+
+/** Codex's workspace-routing discovery call (chatgpt.com backend). */
+function isAccountsCheck(method: string, reqPath: string): boolean {
+  return method === "GET" && (reqPath.split("?")[0] ?? "").endsWith("/accounts/check");
+}
+
+function decodeBody(body: Buffer, encoding: string): Buffer {
+  const enc = encoding.trim().toLowerCase();
+  try {
+    if (enc === "gzip" || enc === "x-gzip") return zlib.gunzipSync(body);
+    if (enc === "deflate") return zlib.inflateSync(body);
+    if (enc === "br") return zlib.brotliDecompressSync(body);
+  } catch {}
+  return body;
+}
+
+function encodeBody(body: Buffer, encoding: string): Buffer {
+  const enc = encoding.trim().toLowerCase();
+  try {
+    if (enc === "gzip" || enc === "x-gzip") return zlib.gzipSync(body);
+    if (enc === "deflate") return zlib.deflateSync(body);
+    if (enc === "br") return zlib.brotliCompressSync(body);
+  } catch {}
+  return body;
+}
+
+/**
+ * Rewrites every account id in an `accounts/check` body to `localId`. Handles
+ * both the list shape (`accounts[].id`) and the map shape
+ * (`accounts[id].account.account_id`). Returns whether anything changed.
+ */
+export function remapAccountIds(parsed: unknown, localId: string): boolean {
+  if (!parsed || typeof parsed !== "object") return false;
+  const obj = parsed as { accounts?: unknown; default_account_id?: unknown };
+  const accounts = obj.accounts;
+  let changed = false;
+  if (Array.isArray(accounts)) {
+    for (const entry of accounts) {
+      if (entry && typeof entry === "object") {
+        (entry as Record<string, unknown>)["id"] = localId;
+        changed = true;
+      }
+    }
+  } else if (accounts && typeof accounts === "object") {
+    for (const value of Object.values(accounts as Record<string, unknown>)) {
+      const info = (value as Record<string, unknown> | null)?.["account"];
+      if (info && typeof info === "object") {
+        (info as Record<string, unknown>)["account_id"] = localId;
+        changed = true;
+      }
+    }
+  }
+  if (typeof obj.default_account_id === "string") obj.default_account_id = localId;
+  return changed;
+}
+
+/**
+ * Codex resolves the selected workspace during TUI bootstrap by calling
+ * GET /backend-api/wham/accounts/check and matching the returned account ids
+ * against the id in its *local* auth.json. The proxy sends the sharer's token,
+ * so upstream reports the sharer's accounts — rewrite the ids to the receiver's
+ * own so bootstrap succeeds even when the two accounts differ. The sharer's real
+ * account id is still what goes upstream.
+ */
+function rewriteAccountsCheck(ctx: any, encoding: string): void {
+  const localId = ctx[CTX_LOCAL_ACCOUNT_ID];
+  if (typeof localId !== "string" || !localId) return;
+  const chunks: Buffer[] = [];
+  ctx.addResponseFilter(
+    new Transform({
+      transform(chunk, _enc, done) {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+        done();
+      },
+      flush(done) {
+        const raw = Buffer.concat(chunks);
+        try {
+          const parsed = JSON.parse(decodeBody(raw, encoding).toString("utf8"));
+          remapAccountIds(parsed, localId);
+          // Re-encode with the same encoding; content-encoding stays valid.
+          this.push(encodeBody(Buffer.from(JSON.stringify(parsed), "utf8"), encoding));
+        } catch {
+          // Never break the response if the shape is unexpected.
+          this.push(raw);
+        }
+        done();
+      },
+    }),
+  );
 }
 
 export interface MitmProxy {
@@ -172,9 +268,19 @@ export async function createMitmProxy(
 
       ctx[CTX_LOG_ID] = logRequest(method, hostname, reqPath, "allowed");
 
+      // Remember which account the receiver's Codex thinks it is signed in as,
+      // before injectAuth swaps in the sharer's credentials.
+      const incomingAccountId = ctx.clientToProxyRequest.headers["chatgpt-account-id"];
+      if (typeof incomingAccountId === "string" && incomingAccountId) {
+        ctx[CTX_LOCAL_ACCOUNT_ID] = incomingAccountId;
+      }
+
       const headers = (ctx.proxyToServerRequestOptions.headers =
         ctx.proxyToServerRequestOptions.headers ?? {});
       injectAuth(headers);
+
+      // The accounts/check response is rewritten below — ask for it uncompressed.
+      if (isAccountsCheck(method, reqPath)) headers["accept-encoding"] = "identity";
 
       ctx.proxyToServerRequestOptions.agent = ctx.isSSL ? httpsAgent : httpAgent;
 
@@ -226,6 +332,26 @@ export async function createMitmProxy(
             },
           }),
         );
+      }
+
+      // Codex's workspace-routing discovery must find the receiver's own account
+      // id even though upstream sees the sharer's. Rewrite the ids it reports.
+      if (
+        status === 200 &&
+        isAccountsCheck(
+          ctx.clientToProxyRequest?.method ?? "",
+          ctx.clientToProxyRequest?.url ?? "",
+        )
+      ) {
+        const rewriteHeaders = ctx.serverToProxyResponse.headers;
+        const encoding = String(rewriteHeaders?.["content-encoding"] ?? "");
+        if (rewriteHeaders) {
+          // Body length changes; the filter re-encodes with the same encoding,
+          // so drop content-length and let Node chunk it.
+          delete rewriteHeaders["content-length"];
+          rewriteHeaders["content-type"] = "application/json";
+        }
+        rewriteAccountsCheck(ctx, encoding);
       }
 
       // Strip any response headers that could leak the sharer's credentials
